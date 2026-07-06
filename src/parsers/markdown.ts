@@ -229,6 +229,7 @@ export function readAndRenderPlanForCockpit(
   raw: string;
   mtimeMs: number;
   sections: PlanSection[];
+  drafts: DraftBlock[];
   draftsHtml: string;
   fullHtml: string;
   directoryIslandHtml: string;
@@ -257,13 +258,14 @@ export function readAndRenderPlanForCockpit(
   // drafts wrapped in <details> for one-line collapse. The Full Markdown
   // collapsible at the bottom uses the unwrapped fullHtml as an escape
   // hatch — it shows everything verbatim.
-  const draftsForWrap = findDraftBlocks(raw);
-  const draftsHtml = wrapSentDraftSections(collectAllDraftSections(fullHtml), draftsForWrap);
+  const drafts = findDraftBlocks(raw);
+  const draftsHtml = wrapSentDraftSections(collectAllDraftSections(fullHtml), drafts);
 
   return {
     raw,
     mtimeMs,
     sections,
+    drafts,
     draftsHtml,
     fullHtml,
     directoryIslandHtml,
@@ -292,16 +294,45 @@ export function readAndRenderPlanForCockpit(
 function collectAllDraftSections(fullHtml: string): string {
   const parts = fullHtml.split(/(<h[23][^>]*>[\s\S]*?<\/h[23]>)/);
   const collected: string[] = [];
+  // Track the most recent H2's text so we can skip H3 drafts that belong
+  // to a Cockpit Mode NEEDS-YOU H2 (`## ⚡ Decision needed`, `## ☑️ One-tap
+  // batch`). Those drafts are rendered by the NEEDS YOU region above and
+  // must NOT double-render in the standard DRAFTS region.
+  let currentH2Kind: "cockpit-needs" | "other" | null = null;
   for (let i = 1; i < parts.length; i += 2) {
     const heading = parts[i];
     const body = parts[i + 1] || "";
+    if (/^<h2\b/i.test(heading)) {
+      currentH2Kind = classifyH2ForDraftFilter(heading);
+      continue;
+    }
     if (!/^<h3\b/i.test(heading)) continue;
+    if (currentH2Kind === "cockpit-needs") continue;
     const hasActionBar = /class="draft-actions/.test(body);
     const hasSendTo = /<strong>\s*(?:Send to|Channel)\s*:?\s*<\/strong>/i.test(body);
     if (!hasActionBar && !hasSendTo) continue;
     collected.push(heading + body);
   }
   return collected.join("\n");
+}
+
+/**
+ * Extract H2 inner text from a rendered `<h2>...</h2>` string and classify
+ * whether it's a Cockpit Mode NEEDS-YOU H2. Kept local to markdown.ts so
+ * the drafts-region slicing stays contained.
+ */
+function classifyH2ForDraftFilter(h2Html: string): "cockpit-needs" | "other" {
+  const inner = h2Html.replace(/^<h2\b[^>]*>/i, "").replace(/<\/h2>\s*$/i, "");
+  const text = inner
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/~~/g, "")
+    .replace(/[⚡☑️📅📰🎯📋]/g, "")
+    .trim()
+    .toLowerCase();
+  if (/^decision\s+needed\b/.test(text)) return "cockpit-needs";
+  if (/^one[-\s]?tap\s+batch\b|^batch\s+review\b/.test(text)) return "cockpit-needs";
+  return "other";
 }
 
 interface SendToTarget {

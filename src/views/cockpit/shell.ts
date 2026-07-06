@@ -22,6 +22,7 @@ import { renderSidebarLeft } from "./sidebar-left.js";
 import { renderSidebarRight } from "./sidebar-right.js";
 import { getDayOfWeek } from "./cards.js";
 import type { PlanSection } from "../../parsers/plan-sections.js";
+import type { DraftBlock } from "../../parsers/draft-blocks.js";
 import type { PlanEntry } from "../plan.js";
 import type { ProjectWithSource } from "../../parsers/yaml.js";
 
@@ -41,6 +42,12 @@ export interface PlanCockpitShellOpts {
   projects?: ProjectWithSource[];
   /** Plans within ±60 days of `date` for the mini calendar. */
   plansForCalendar?: PlanEntry[];
+  /** All drafts parsed from raw (v0.10+) — powers NEEDS YOU one-tap rendering. */
+  drafts?: DraftBlock[];
+  /** Whether the source has a Slack token configured (env var present). */
+  slackConfigured?: boolean;
+  /** Whether Tier-A auto-send is enabled for this source (v0.10+). */
+  tierASendEnabled?: boolean;
 }
 
 export function planCockpitShellView(opts: PlanCockpitShellOpts): string {
@@ -76,6 +83,9 @@ export function planCockpitShellView(opts: PlanCockpitShellOpts): string {
     nextDate: opts.nextDate,
     fileMtimeMs: opts.fileMtimeMs,
     editable: opts.editable,
+    drafts: opts.drafts,
+    slackConfigured: opts.slackConfigured,
+    tierASendEnabled: opts.tierASendEnabled,
   });
 
   const rightSidebarHtml = renderSidebarRight({

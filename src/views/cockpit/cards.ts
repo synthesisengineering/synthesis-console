@@ -24,6 +24,7 @@ import type {
   PlanTask,
   TaskSemantic,
 } from "../../parsers/plan-sections.js";
+import type { DraftBlock } from "../../parsers/draft-blocks.js";
 import { escapeHtml, escapeAttr } from "../../utils.js";
 
 const md = new MarkdownIt({ html: true, linkify: true, typographer: true });
@@ -261,6 +262,281 @@ export function stripListWrapper(html: string): string {
     return innerP ? innerP[1] : inner;
   }
   return trimmed;
+}
+
+/* -------------------------------------------------------------------------- */
+/* v0.10 — NEEDS YOU one-tap draft card                                       */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Compact draft card for the NEEDS YOU one-tap batch review.
+ *
+ * Layout:
+ *   - Header: recipient + first-line preview + character count.
+ *   - Body:   `<details>` disclosure with the full rendered body inside.
+ *   - Actions: SKIP · EDIT · APPROVE (three buttons, keyboard-navigable).
+ *
+ * The card uses the same `data-draft-index` attribute as the standard draft
+ * region, so the existing edit-in-place JS handlers continue to work when
+ * EDIT toggles inline. APPROVE routes to the send flow (with confirm modal
+ * unless the source's `tier_a_send_enabled` is true AND the draft carries
+ * a Tier-A marker, per D2 in the execution plan). SKIP posts to
+ * `/plans/:source/:date/draft/:index/skip`.
+ *
+ * Sent drafts render dimmed with an inline "Sent HH:MM" badge and no
+ * action buttons — matches the sent-state treatment in the standard region.
+ * Skipped drafts render dimmed with a "Skipped HH:MM" badge and an "Undo"
+ * button (POST-based; server rejects to prevent Sent→Skipped→Sent races).
+ */
+export interface OneTapDraftOpts {
+  editable: boolean;
+  sourceName: string;
+  planDate: string;
+  slackConfigured: boolean;
+  tierASendEnabled: boolean;
+}
+
+export function renderOneTapDraft(d: DraftBlock, opts: OneTapDraftOpts): string {
+  const recipient = d.sendToText ? escapeHtml(d.sendToText) : "(no recipient)";
+  const rawBody = d.bodyText ?? "";
+  const preview = extractFirstLine(rawBody);
+  const chars = rawBody.length;
+  const bodyHtml = md.render(rawBody);
+  const bodyTextAttr = escapeAttr(rawBody);
+
+  const cardState = d.alreadySent ? "sent" : d.alreadySkipped ? "skipped" : "open";
+  const badge =
+    d.alreadySent && d.sentAt
+      ? `<span class="cockpit-onetap-badge cockpit-onetap-badge-sent">Sent · ${escapeHtml(d.sentAt)}</span>`
+      : d.alreadySent
+        ? `<span class="cockpit-onetap-badge cockpit-onetap-badge-sent">Sent</span>`
+        : d.alreadySkipped && d.skippedAt
+          ? `<span class="cockpit-onetap-badge cockpit-onetap-badge-skipped">Skipped · ${escapeHtml(d.skippedAt)}</span>`
+          : d.alreadySkipped
+            ? `<span class="cockpit-onetap-badge cockpit-onetap-badge-skipped">Skipped</span>`
+            : "";
+
+  const permalinkBtn =
+    d.alreadySent && d.sentPermalink
+      ? `<a class="cockpit-onetap-btn cockpit-onetap-btn-permalink" href="${escapeAttr(d.sentPermalink)}" target="_blank" rel="noopener">View in Slack</a>`
+      : "";
+
+  const canAct = opts.editable && cardState === "open";
+  const canUndoSkip = opts.editable && cardState === "skipped";
+
+  const actions = canAct
+    ? `
+      <div class="cockpit-onetap-actions" role="group" aria-label="One-tap actions">
+        <button type="button" class="cockpit-onetap-btn cockpit-onetap-btn-skip" data-onetap-action="skip" data-draft-index="${d.index}">Skip</button>
+        <button type="button" class="cockpit-onetap-btn cockpit-onetap-btn-edit" data-onetap-action="edit" data-draft-index="${d.index}">Edit</button>
+        <button type="button" class="cockpit-onetap-btn cockpit-onetap-btn-approve" data-onetap-action="approve" data-draft-index="${d.index}" data-slack-configured="${opts.slackConfigured ? "true" : "false"}" data-tier-a-enabled="${opts.tierASendEnabled ? "true" : "false"}"${opts.slackConfigured ? "" : ' title="Slack not configured — Approve will copy the body and open Slack"'}>Approve</button>
+      </div>
+    `
+    : canUndoSkip
+      ? `
+      <div class="cockpit-onetap-actions" role="group" aria-label="Undo skip">
+        <button type="button" class="cockpit-onetap-btn cockpit-onetap-btn-undo-skip" data-onetap-action="undo-skip" data-draft-index="${d.index}">Undo skip</button>
+      </div>
+    `
+      : "";
+
+  return `
+    <article class="cockpit-onetap-draft cockpit-onetap-state-${cardState}" data-draft-index="${d.index}" data-body-text="${bodyTextAttr}" data-source="${escapeAttr(opts.sourceName)}" data-date="${escapeAttr(opts.planDate)}">
+      <header class="cockpit-onetap-header">
+        <span class="cockpit-onetap-recipient" title="Send to">${recipient}</span>
+        <span class="cockpit-onetap-preview" title="Body preview">${escapeHtml(preview)}</span>
+        <span class="cockpit-onetap-meta">${chars} chars${badge ? ` · ${badge}` : ""}</span>
+      </header>
+      <details class="cockpit-onetap-body">
+        <summary class="cockpit-onetap-body-summary">Show full body</summary>
+        <div class="cockpit-onetap-body-content rendered-markdown">${bodyHtml}</div>
+      </details>
+      <div class="cockpit-onetap-status" role="status" aria-live="polite"></div>
+      ${permalinkBtn}
+      ${actions}
+    </article>
+  `;
+}
+
+/**
+ * NEEDS YOU region wrapper. Composes: priority decisions + one-tap batch
+ * drafts + light decisions (from `## ⚡ Decision needed` and
+ * `## ☑️ One-tap batch` H2s). Renders empty-state when both are absent.
+ *
+ * openCount = un-decided decisions + un-actioned drafts.
+ */
+export interface NeedsYouOpts {
+  editable: boolean;
+  sourceName: string;
+  planDate: string;
+  slackConfigured: boolean;
+  tierASendEnabled: boolean;
+}
+
+export function renderNeedsYouRegion(
+  priorityDecisions: Decision[],
+  batchDecisions: Decision[],
+  batchDrafts: DraftBlock[],
+  opts: NeedsYouOpts
+): string {
+  const hasContent = priorityDecisions.length + batchDecisions.length + batchDrafts.length > 0;
+  if (!hasContent) {
+    return "";
+  }
+
+  const openCount =
+    priorityDecisions.filter((d) => !d.decided).length +
+    batchDecisions.filter((d) => !d.decided).length +
+    batchDrafts.filter((d) => !d.alreadySent && !d.alreadySkipped).length;
+
+  const priorityHtml = priorityDecisions
+    .map((d) => renderDecisionCard(d, { editable: opts.editable }))
+    .join("\n");
+  const batchDecisionsHtml = batchDecisions
+    .map((d) => renderDecisionCard(d, { editable: opts.editable }))
+    .join("\n");
+  const batchDraftsHtml = batchDrafts
+    .map((draft) => renderOneTapDraft(draft, {
+      editable: opts.editable,
+      sourceName: opts.sourceName,
+      planDate: opts.planDate,
+      slackConfigured: opts.slackConfigured,
+      tierASendEnabled: opts.tierASendEnabled,
+    }))
+    .join("\n");
+
+  const priorityWrap = priorityHtml
+    ? `<div class="cockpit-needs-priority">${priorityHtml}</div>`
+    : "";
+  const batchWrap = batchDecisionsHtml || batchDraftsHtml
+    ? `<div class="cockpit-needs-batch">${batchDecisionsHtml}${batchDraftsHtml}</div>`
+    : "";
+
+  return `
+    <section class="cockpit-region cockpit-region-needs-you" data-region="needs-you" aria-label="Needs you now">
+      <h2 class="cockpit-region-title">NEEDS YOU
+        <span class="cockpit-region-count">${openCount} open</span>
+      </h2>
+      ${priorityWrap}
+      ${batchWrap}
+    </section>
+  `;
+}
+
+/* -------------------------------------------------------------------------- */
+/* v0.10 — TICKER region ("On your behalf")                                   */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Parse the raw markdown body of a `## On your behalf` H2 into ticker items.
+ *
+ * Contract from synthesis-daily-rituals v2.10.0+:
+ *   Each item is a list line of shape
+ *     `- HH:MM · target · action · [permalink](url)` (canonical), OR
+ *     `- HH:MM · target · action` (no permalink yet), OR
+ *     any list line the parser doesn't recognize — falls back to raw
+ *   markdown rendering per the "never lose data" principle.
+ */
+export interface TickerItem {
+  time?: string;
+  target?: string;
+  action?: string;
+  permalink?: string;
+  rawLine: string;
+}
+
+const TICKER_LINE_RE = /^\s*[-*+]\s+(?:\*\*)?(\d{1,2}:\d{2}(?:\s*[A-Z]{2,4})?)(?:\*\*)?\s*[·|]\s*(.+?)\s*[·|]\s*(.+?)(?:\s*[·|]\s*\[([^\]]+)\]\((https?:\/\/[^)]+)\)\s*)?$/;
+
+export function parseTickerBody(rawBody: string): TickerItem[] {
+  const items: TickerItem[] = [];
+  for (const line of rawBody.split("\n")) {
+    const trimmed = line.trim();
+    if (trimmed.length === 0) continue;
+    if (!/^[-*+]\s/.test(trimmed)) continue;
+    const m = trimmed.match(TICKER_LINE_RE);
+    if (m) {
+      items.push({
+        time: m[1],
+        target: m[2],
+        action: m[3],
+        permalink: m[5],
+        rawLine: trimmed,
+      });
+    } else {
+      items.push({ rawLine: trimmed });
+    }
+  }
+  return items;
+}
+
+export function renderTickerItem(item: TickerItem): string {
+  if (item.time || item.target || item.action) {
+    const timeCell = item.time
+      ? `<span class="cockpit-ticker-time">${escapeHtml(item.time)}</span>`
+      : "";
+    const targetCell = item.target
+      ? `<span class="cockpit-ticker-target">${escapeHtml(item.target)}</span>`
+      : "";
+    const actionCell = item.action
+      ? `<span class="cockpit-ticker-action">${md.renderInline(item.action)}</span>`
+      : "";
+    const permalinkCell = item.permalink
+      ? `<a class="cockpit-ticker-permalink" href="${escapeAttr(item.permalink)}" target="_blank" rel="noopener">View</a>`
+      : "";
+    return `
+      <li class="cockpit-ticker-item">
+        ${timeCell}
+        ${targetCell}
+        ${actionCell}
+        ${permalinkCell}
+      </li>
+    `;
+  }
+  // Fallback for lines the parser didn't recognize — render as raw markdown
+  // list item so no data is lost.
+  return `<li class="cockpit-ticker-item cockpit-ticker-item-raw">${md.renderInline(item.rawLine.replace(/^\s*[-*+]\s+/, ""))}</li>`;
+}
+
+export function renderTickerRegion(rawBody: string, openByDefault = false): string {
+  const items = parseTickerBody(rawBody);
+  const itemsHtml = items.map(renderTickerItem).join("\n");
+  const summary = items.length === 1
+    ? "On your behalf — 1 action"
+    : `On your behalf — ${items.length} action${items.length === 1 ? "" : "s"}`;
+  const openAttr = openByDefault ? " open" : "";
+  const bodyHtml = items.length > 0
+    ? `<ul class="cockpit-ticker-list">${itemsHtml}</ul>`
+    : `<p class="cockpit-ticker-empty">Nothing acted on yet.</p>`;
+
+  return `
+    <section class="cockpit-region cockpit-region-ticker" data-region="ticker" aria-label="On your behalf">
+      <details class="cockpit-ticker-details"${openAttr}>
+        <summary class="cockpit-ticker-summary">${escapeHtml(summary)}</summary>
+        <div class="cockpit-ticker-body">${bodyHtml}</div>
+      </details>
+    </section>
+  `;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Helpers                                                                    */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * First non-blank content line, truncated to ~120 chars, with markdown link
+ * text kept but URLs stripped. Used as the preview line in one-tap cards.
+ */
+function extractFirstLine(rawBody: string): string {
+  for (const line of rawBody.split("\n")) {
+    const trimmed = line.trim();
+    if (trimmed.length === 0) continue;
+    if (trimmed.startsWith(">")) continue;
+    if (trimmed.startsWith("```")) continue;
+    // Strip markdown-link `[label](url)` → `label`.
+    const cleaned = trimmed.replace(/\[([^\]]+)\]\([^)]*\)/g, "$1");
+    return cleaned.length > 120 ? cleaned.slice(0, 117) + "…" : cleaned;
+  }
+  return "(empty body)";
 }
 
 /* -------------------------------------------------------------------------- */

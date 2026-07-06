@@ -19,6 +19,16 @@ export interface SlackConfig {
   users_file?: string;
   /** Path (relative to source.root) to a YAML file mapping channel name → channel ID. */
   channels_file?: string;
+  /**
+   * Cockpit Mode Tier-A auto-send (v0.10+). When true, one-tap approval on
+   * a Tier-A draft in NEEDS YOU sends directly without a confirm modal.
+   * When false (default), all sends — including one-tap approvals — go
+   * through the same confirm-modal flow as the standard drafts region.
+   * Requires the standing authority-matrix approval (working-system-v3 §4)
+   * before flipping to true; when the matrix isn't approved, keep this
+   * false and Tier-A drafts route through the Tier-B queue.
+   */
+  tier_a_send_enabled?: boolean;
 }
 
 export interface Source {

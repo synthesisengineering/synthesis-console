@@ -102,6 +102,10 @@ export interface DraftBlock {
   sentPermalink?: string;
   /** Parsed Slack message TS from a `**Sent:**` marker, if any. */
   sentTs?: string;
+  /** True if a `**Skipped:**` marker is present (v0.10 NEEDS YOU write-back). */
+  alreadySkipped: boolean;
+  /** Timestamp label from the `**Skipped:**` marker, if any. */
+  skippedAt?: string;
 }
 
 const md = new MarkdownIt({ html: true, linkify: true, typographer: true });
@@ -109,6 +113,12 @@ const md = new MarkdownIt({ html: true, linkify: true, typographer: true });
 const SEND_TO_INLINE_RE = /^\s*\*\*\s*(?:Send to|Channel)\s*:?\s*\*\*/i;
 const SUBJECT_INLINE_RE = /^\s*\*\*\s*Subject\s*:?\s*\*\*/i;
 const SENT_INLINE_RE = /^\s*\*\*\s*Sent(?:\s*at)?\s*:?\s*\*\*/i;
+// v0.10 (Cockpit Mode): NEEDS YOU one-tap queue records dismissed drafts
+// with a `**Skipped:**` paragraph parallel to `**Sent:**`. Format:
+//   `**Skipped:** HH:MM TZ` (short form written by the /skip endpoint).
+// Presence of a Skipped marker gates the same "don't re-surface" behavior
+// Sent gets, and dims the card without deleting body text.
+const SKIPPED_INLINE_RE = /^\s*\*\*\s*Skipped(?:\s*at)?\s*:?\s*\*\*/i;
 const GROUNDING_INLINE_RE = /^\s*\*\*\s*Grounding\s*:?\s*\*\*/i;
 
 interface ParagraphMeta {
@@ -197,11 +207,17 @@ export function findDraftBlocks(raw: string): DraftBlock[] {
     //      AND any `<hr>` separators before the next H3.
     let regionEnd = sectionEnd;
     let sentMarkerParagraph: ParagraphMeta | undefined;
+    let skippedMarkerParagraph: ParagraphMeta | undefined;
     for (const p of paragraphs) {
       if (p.startLine < regionStart || p.startLine > sectionEnd) continue;
       if (SENT_INLINE_RE.test(p.text)) {
         regionEnd = Math.min(regionEnd, p.startLine - 1);
         sentMarkerParagraph = p;
+        break;
+      }
+      if (SKIPPED_INLINE_RE.test(p.text)) {
+        regionEnd = Math.min(regionEnd, p.startLine - 1);
+        skippedMarkerParagraph = p;
         break;
       }
       if (GROUNDING_INLINE_RE.test(p.text)) {
@@ -288,7 +304,14 @@ export function findDraftBlocks(raw: string): DraftBlock[] {
       sectionHeadingLine: currentSectionHeading,
       sectionEndLine: currentSectionEnd,
       alreadySent: false,
+      alreadySkipped: false,
     };
+
+    if (skippedMarkerParagraph) {
+      const tail = skippedMarkerParagraph.text.replace(SKIPPED_INLINE_RE, "").trim();
+      draft.alreadySkipped = true;
+      draft.skippedAt = tail || undefined;
+    }
 
     if (sentMarkerParagraph) {
       // Canonical form (synthesis-slack-sync v3.2.0+, synthesis-console
@@ -565,6 +588,86 @@ export function markDraftAsSent(
 
   const newLines = [...lines.slice(0, insertAt), ...block, ...lines.slice(insertAt)];
   return { ok: true, newRaw: newLines.join("\n") };
+}
+
+/**
+ * Append a `**Skipped:** ...` marker after the draft body. Idempotent.
+ *
+ * Written by POST /plans/:source/:date/draft/:index/skip when the user
+ * dismisses a NEEDS YOU one-tap draft. The file records the decision so
+ * cross-day rollover skips it, `alreadySkipped` renders the card as dimmed
+ * without deleting the body, and any future re-sync sees the intentional
+ * dismissal instead of re-queueing.
+ *
+ * Fails when a `**Sent:**` marker is already present — sent drafts must be
+ * explicitly unsent before being skipped, since the two states are exclusive
+ * and Skipped-after-Sent would be a data error.
+ */
+export function markDraftAsSkipped(
+  raw: string,
+  draftIndex: number,
+  skippedAtLocal: string
+):
+  | { ok: true; newRaw: string }
+  | { ok: false; reason: "not-found" | "already-sent" | "already-skipped" | "invalid-input" } {
+  if (!skippedAtLocal || skippedAtLocal.length > 60) {
+    return { ok: false, reason: "invalid-input" };
+  }
+  const drafts = findDraftBlocks(raw);
+  const draft = drafts[draftIndex];
+  if (!draft) return { ok: false, reason: "not-found" };
+  if (draft.alreadySent) return { ok: false, reason: "already-sent" };
+  if (draft.alreadySkipped) return { ok: false, reason: "already-skipped" };
+
+  const lines = raw.split("\n");
+  const insertAt = draft.regionEndLine + 1;
+  const skippedLine = `**Skipped:** ${skippedAtLocal}`;
+  const needsLeadingBlank = (lines[insertAt - 1] ?? "").trim() !== "";
+  const block = needsLeadingBlank ? ["", skippedLine] : [skippedLine];
+  const newLines = [...lines.slice(0, insertAt), ...block, ...lines.slice(insertAt)];
+  return { ok: true, newRaw: newLines.join("\n") };
+}
+
+/**
+ * Reverse a `**Skipped:** ...` marker. Symmetric to unmarkTaskDone.
+ * Removes the marker paragraph and the immediately preceding blank line,
+ * if any. Fails if the draft is not skipped or was never marked with the
+ * canonical shape.
+ */
+export function unmarkDraftAsSkipped(
+  raw: string,
+  draftIndex: number
+):
+  | { ok: true; newRaw: string }
+  | { ok: false; reason: "not-found" | "not-skipped" } {
+  const drafts = findDraftBlocks(raw);
+  const draft = drafts[draftIndex];
+  if (!draft) return { ok: false, reason: "not-found" };
+  if (!draft.alreadySkipped) return { ok: false, reason: "not-skipped" };
+
+  // Locate the `**Skipped:**` line at or right after regionEndLine + 1.
+  // The parser already validated its presence; re-scan the source to find
+  // the exact line number so we can splice it out.
+  const lines = raw.split("\n");
+  let markerLine = -1;
+  const searchStart = draft.regionEndLine + 1;
+  const searchEnd = Math.min(lines.length - 1, (draft.sectionEndLine ?? lines.length - 1));
+  for (let i = searchStart; i <= searchEnd; i++) {
+    if (SKIPPED_INLINE_RE.test(lines[i] ?? "")) {
+      markerLine = i;
+      break;
+    }
+  }
+  if (markerLine < 0) return { ok: false, reason: "not-skipped" };
+
+  // Drop the marker line. If the line before it is blank AND the line
+  // after it is also blank (or EOF), drop one of the blanks so we don't
+  // leave a double-blank hole.
+  const dropStart = markerLine > 0 && (lines[markerLine - 1] ?? "").trim() === "" ? markerLine - 1 : markerLine;
+  const dropEnd = markerLine; // inclusive
+  const before = lines.slice(0, dropStart);
+  const after = lines.slice(dropEnd + 1);
+  return { ok: true, newRaw: [...before, ...after].join("\n") };
 }
 
 function parseSentTimestamp(s: string): string | undefined {

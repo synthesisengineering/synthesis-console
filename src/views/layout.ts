@@ -506,7 +506,184 @@ function layoutScript(): string {
           if (sendActions) openSendModal(sendActions);
           return;
         }
+
+        // ---- v0.10 one-tap actions (NEEDS YOU) ----
+        var oneTapBtn = t.closest('.cockpit-onetap-btn');
+        if (oneTapBtn) {
+          e.preventDefault();
+          var action = oneTapBtn.dataset.onetapAction;
+          var card = oneTapBtn.closest('.cockpit-onetap-draft');
+          if (!card || !action) return;
+          if (action === 'skip') handleOneTapSkip(card);
+          else if (action === 'undo-skip') handleOneTapUndoSkip(card);
+          else if (action === 'edit') handleOneTapEdit(card);
+          else if (action === 'approve') handleOneTapApprove(card);
+          return;
+        }
       });
+
+      // ---- v0.10 one-tap handlers ----
+      function oneTapEndpoint(card, suffix) {
+        var src = card.dataset.source;
+        var date = card.dataset.date;
+        var idx = card.dataset.draftIndex;
+        return '/plans/' + encodeURIComponent(src) + '/' + encodeURIComponent(date) + '/draft/' + encodeURIComponent(idx) + suffix;
+      }
+
+      function setOneTapStatus(card, msg, cls) {
+        var status = card.querySelector('.cockpit-onetap-status');
+        if (!status) return;
+        status.textContent = msg || '';
+        status.classList.remove('cockpit-status-error', 'cockpit-status-ok');
+        if (cls) status.classList.add(cls);
+      }
+
+      function setOneTapBusy(card, busy) {
+        var btns = card.querySelectorAll('.cockpit-onetap-btn');
+        for (var i = 0; i < btns.length; i++) btns[i].disabled = !!busy;
+      }
+
+      function handleOneTapSkip(card) {
+        setOneTapBusy(card, true);
+        setOneTapStatus(card, 'Marking skipped…');
+        fetch(oneTapEndpoint(card, '/skip'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({})
+        }).then(function (r) {
+          return r.json().then(function (j) { return { status: r.status, body: j }; });
+        }).then(function (res) {
+          if (res.status >= 200 && res.status < 300) {
+            // Trigger the mtime poller to refresh the whole plan cleanly.
+            location.reload();
+          } else {
+            setOneTapBusy(card, false);
+            setOneTapStatus(card, (res.body && res.body.error) || 'Skip failed.', 'cockpit-status-error');
+          }
+        }).catch(function () {
+          setOneTapBusy(card, false);
+          setOneTapStatus(card, 'Network error — try again.', 'cockpit-status-error');
+        });
+      }
+
+      function handleOneTapUndoSkip(card) {
+        setOneTapBusy(card, true);
+        setOneTapStatus(card, 'Restoring…');
+        fetch(oneTapEndpoint(card, '/unskip'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({})
+        }).then(function (r) {
+          return r.json().then(function (j) { return { status: r.status, body: j }; });
+        }).then(function (res) {
+          if (res.status >= 200 && res.status < 300) {
+            location.reload();
+          } else {
+            setOneTapBusy(card, false);
+            setOneTapStatus(card, (res.body && res.body.error) || 'Undo failed.', 'cockpit-status-error');
+          }
+        }).catch(function () {
+          setOneTapBusy(card, false);
+          setOneTapStatus(card, 'Network error — try again.', 'cockpit-status-error');
+        });
+      }
+
+      function handleOneTapEdit(card) {
+        var details = card.querySelector('.cockpit-onetap-body');
+        if (details && !details.open) details.open = true;
+        var content = card.querySelector('.cockpit-onetap-body-content');
+        if (!content) return;
+        var originalBody = card.dataset.bodyText || '';
+        if (card.dataset.mode === 'editing') return;
+        card.dataset.mode = 'editing';
+        card.dataset.originalBody = originalBody;
+        var ta = document.createElement('textarea');
+        ta.className = 'cockpit-onetap-editor';
+        ta.value = originalBody;
+        ta.rows = Math.max(3, originalBody.split('\\n').length + 1);
+        var actionRow = document.createElement('div');
+        actionRow.className = 'cockpit-onetap-editor-actions';
+        actionRow.innerHTML = '<button type="button" class="cockpit-onetap-btn cockpit-onetap-btn-cancel">Cancel</button>' +
+                              '<button type="button" class="cockpit-onetap-btn cockpit-onetap-btn-save">Save</button>';
+        content.style.display = 'none';
+        content.parentNode.appendChild(ta);
+        content.parentNode.appendChild(actionRow);
+        ta.focus();
+        actionRow.querySelector('.cockpit-onetap-btn-cancel').addEventListener('click', function () {
+          exitOneTapEdit(card);
+        });
+        actionRow.querySelector('.cockpit-onetap-btn-save').addEventListener('click', function () {
+          saveOneTapEdit(card, ta.value);
+        });
+      }
+
+      function exitOneTapEdit(card) {
+        var content = card.querySelector('.cockpit-onetap-body-content');
+        var ta = card.querySelector('.cockpit-onetap-editor');
+        var actions = card.querySelector('.cockpit-onetap-editor-actions');
+        if (content) content.style.display = '';
+        if (ta && ta.parentNode) ta.parentNode.removeChild(ta);
+        if (actions && actions.parentNode) actions.parentNode.removeChild(actions);
+        delete card.dataset.mode;
+        delete card.dataset.originalBody;
+        setOneTapStatus(card, '');
+      }
+
+      function saveOneTapEdit(card, newBody) {
+        var originalBody = card.dataset.originalBody || card.dataset.bodyText || '';
+        setOneTapBusy(card, true);
+        setOneTapStatus(card, 'Saving…');
+        fetch(oneTapEndpoint(card, ''), {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ originalText: originalBody, newText: newBody })
+        }).then(function (r) {
+          return r.json().then(function (j) { return { status: r.status, body: j }; });
+        }).then(function (res) {
+          if (res.status >= 200 && res.status < 300) {
+            location.reload();
+          } else {
+            setOneTapBusy(card, false);
+            setOneTapStatus(card, (res.body && res.body.error) || 'Save failed.', 'cockpit-status-error');
+          }
+        }).catch(function () {
+          setOneTapBusy(card, false);
+          setOneTapStatus(card, 'Network error — try again.', 'cockpit-status-error');
+        });
+      }
+
+      function handleOneTapApprove(card) {
+        var body = card.dataset.bodyText || '';
+        var slackConfigured = card.querySelector('[data-slack-configured="true"]');
+        var tierAEnabled = card.querySelector('[data-tier-a-enabled="true"]');
+        if (!slackConfigured) {
+          // Slack not configured — copy the body and open Slack's web app.
+          var copyResolved = smartResolveMentions(body);
+          copyText(copyResolved, card.querySelector('.cockpit-onetap-btn-approve'));
+          setOneTapStatus(card, 'Copied — paste into Slack. Then click Skip if you sent it.', 'cockpit-status-ok');
+          return;
+        }
+        // Slack configured — use the same confirm modal as the standard
+        // draft send path. Build a minimal draft-actions element so
+        // openSendModal has what it needs; the modal reads dataset.source,
+        // dataset.date, dataset.draftIndex from the closest .cockpit-view
+        // wrapper and the closest .draft-actions.
+        // openSendModal walks up the DOM to find the cockpit-view element
+        // (which carries data-source / data-date) and reads dataset.draftIndex
+        // from the actions element. getDraftText reads dataset.originalText.
+        // Build a hidden proxy inside the card that satisfies both lookups
+        // without duplicating any of the send-modal wiring below.
+        var existingProxy = card.querySelector('.cockpit-onetap-proxy');
+        if (existingProxy && existingProxy.parentNode) existingProxy.parentNode.removeChild(existingProxy);
+        var proxy = document.createElement('div');
+        proxy.className = 'draft-actions cockpit-onetap-proxy';
+        proxy.style.display = 'none';
+        proxy.dataset.mode = 'view';
+        proxy.dataset.draftIndex = card.dataset.draftIndex;
+        proxy.dataset.originalText = body;
+        card.appendChild(proxy);
+        openSendModal(proxy);
+      }
 
       // ---- Send-to-Slack confirm modal ----
       // Created on demand and reused across sends.

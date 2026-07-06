@@ -2833,3 +2833,315 @@ body[data-cockpit-focus="true"] .cockpit-shell .cockpit-header {
     flex-wrap: wrap;
   }
 }
+
+/* ============================================================
+   v0.10 — Cockpit Mode: NEEDS YOU + TICKER regions
+   ============================================================ */
+
+/* NEEDS YOU region — sits above MUST DO TODAY. Tighter visual density
+   than MUST DO because the queue is meant to be scanned + cleared in
+   ≤10 min per session. Left-border accent = "critical" tone to match
+   the region-title, but softened background so it doesn't compete
+   with alerts elsewhere. */
+.cockpit-region-needs-you {
+  border-left: 3px solid var(--cockpit-critical, #d33);
+  padding: 0.6em 0.9em 0.8em;
+  background: var(--cockpit-needs-bg, rgba(220, 53, 69, 0.03));
+  border-radius: 4px;
+  margin-bottom: 1em;
+}
+
+.cockpit-region-needs-you .cockpit-region-title {
+  font-size: 0.95em;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--cockpit-critical, #d33);
+  margin: 0 0 0.5em;
+  display: flex;
+  align-items: baseline;
+  gap: 0.6em;
+}
+
+.cockpit-region-needs-you .cockpit-region-count {
+  font-size: 0.82em;
+  font-weight: normal;
+  color: var(--muted-color, #666);
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.cockpit-needs-priority,
+.cockpit-needs-batch {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5em;
+}
+.cockpit-needs-priority { margin-bottom: 0.6em; }
+
+/* One-tap draft card — compact by default; body expandable */
+.cockpit-onetap-draft {
+  border: 1px solid var(--muted-border-color, #ddd);
+  border-left: 3px solid var(--cockpit-action, #0969da);
+  border-radius: 4px;
+  padding: 0.5em 0.7em;
+  background: var(--card-background-color, #fff);
+  transition: background 120ms ease;
+}
+.cockpit-onetap-draft:hover {
+  background: var(--cockpit-card-hover, rgba(9, 105, 218, 0.04));
+}
+
+.cockpit-onetap-state-sent {
+  opacity: 0.55;
+  border-left-color: var(--cockpit-done, #2da44e);
+}
+.cockpit-onetap-state-skipped {
+  opacity: 0.55;
+  border-left-color: var(--muted-color, #999);
+}
+
+.cockpit-onetap-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.5em;
+  margin-bottom: 0.35em;
+}
+
+.cockpit-onetap-recipient {
+  font-weight: 600;
+  color: var(--cockpit-action, #0969da);
+  flex-shrink: 0;
+}
+.cockpit-onetap-recipient::before {
+  content: "To: ";
+  font-weight: normal;
+  color: var(--muted-color, #666);
+}
+
+.cockpit-onetap-preview {
+  color: var(--color, #222);
+  flex: 1 1 60%;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cockpit-onetap-meta {
+  font-size: 0.82em;
+  color: var(--muted-color, #666);
+  flex-shrink: 0;
+}
+
+.cockpit-onetap-badge {
+  display: inline-block;
+  padding: 0.05em 0.4em;
+  border-radius: 3px;
+  font-size: 0.85em;
+  font-weight: 600;
+}
+.cockpit-onetap-badge-sent {
+  background: var(--cockpit-done-bg, rgba(45, 164, 78, 0.15));
+  color: var(--cockpit-done, #2da44e);
+}
+.cockpit-onetap-badge-skipped {
+  background: var(--muted-bg, rgba(120, 120, 120, 0.15));
+  color: var(--muted-color, #666);
+}
+
+.cockpit-onetap-body {
+  margin: 0.3em 0;
+}
+.cockpit-onetap-body summary {
+  cursor: pointer;
+  font-size: 0.85em;
+  color: var(--muted-color, #666);
+  padding: 0.15em 0;
+  list-style: none;
+}
+.cockpit-onetap-body summary::-webkit-details-marker { display: none; }
+.cockpit-onetap-body summary::before {
+  content: "▸ ";
+  display: inline-block;
+  transition: transform 120ms ease;
+}
+.cockpit-onetap-body[open] summary::before {
+  transform: rotate(90deg);
+}
+.cockpit-onetap-body-content {
+  margin-top: 0.4em;
+  padding: 0.4em 0.6em;
+  background: var(--cockpit-body-bg, rgba(0, 0, 0, 0.02));
+  border-radius: 3px;
+  font-size: 0.95em;
+  overflow-wrap: anywhere;
+}
+
+.cockpit-onetap-status {
+  min-height: 1.2em;
+  font-size: 0.85em;
+  color: var(--muted-color, #666);
+}
+.cockpit-onetap-status.cockpit-status-error {
+  color: var(--cockpit-critical, #d33);
+}
+.cockpit-onetap-status.cockpit-status-ok {
+  color: var(--cockpit-done, #2da44e);
+}
+
+.cockpit-onetap-actions {
+  display: flex;
+  gap: 0.4em;
+  margin-top: 0.4em;
+  justify-content: flex-end;
+}
+
+.cockpit-onetap-btn {
+  padding: 0.3em 0.9em;
+  border: 1px solid var(--muted-border-color, #ccc);
+  background: var(--card-background-color, #fff);
+  border-radius: 3px;
+  font-size: 0.9em;
+  cursor: pointer;
+  transition: background 100ms ease, border-color 100ms ease;
+}
+.cockpit-onetap-btn:hover { background: var(--cockpit-card-hover, rgba(0,0,0,0.04)); }
+.cockpit-onetap-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+
+.cockpit-onetap-btn-approve {
+  background: var(--cockpit-done, #2da44e);
+  color: #fff;
+  border-color: var(--cockpit-done, #2da44e);
+  font-weight: 600;
+}
+.cockpit-onetap-btn-approve:hover {
+  background: var(--cockpit-done-hover, #218739);
+  border-color: var(--cockpit-done-hover, #218739);
+}
+
+.cockpit-onetap-btn-skip {
+  color: var(--muted-color, #666);
+}
+.cockpit-onetap-btn-skip:hover {
+  border-color: var(--cockpit-critical, #d33);
+  color: var(--cockpit-critical, #d33);
+}
+
+.cockpit-onetap-btn-permalink {
+  display: inline-block;
+  margin-top: 0.3em;
+  padding: 0.15em 0.5em;
+  font-size: 0.85em;
+  color: var(--cockpit-action, #0969da);
+  text-decoration: none;
+  border: 1px solid var(--muted-border-color, #ccc);
+  border-radius: 3px;
+}
+
+/* TICKER region — collapsed by default; lower-row placement.
+   Renders directly under NEEDS YOU (or under the plan header when
+   NEEDS YOU is empty). */
+.cockpit-region-ticker {
+  margin-bottom: 1em;
+}
+.cockpit-ticker-details {
+  border-left: 3px solid var(--cockpit-context, #6b7280);
+  padding: 0.4em 0.8em;
+  background: var(--cockpit-body-bg, rgba(0, 0, 0, 0.02));
+  border-radius: 4px;
+}
+.cockpit-ticker-summary {
+  cursor: pointer;
+  font-size: 0.9em;
+  color: var(--muted-color, #666);
+  letter-spacing: 0.03em;
+  padding: 0.15em 0;
+  list-style: none;
+}
+.cockpit-ticker-summary::-webkit-details-marker { display: none; }
+.cockpit-ticker-summary::before {
+  content: "▸ ";
+  display: inline-block;
+  transition: transform 120ms ease;
+}
+.cockpit-ticker-details[open] .cockpit-ticker-summary::before {
+  transform: rotate(90deg);
+}
+.cockpit-ticker-body {
+  margin-top: 0.5em;
+}
+.cockpit-ticker-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.cockpit-ticker-item {
+  display: grid;
+  grid-template-columns: 4.5em 10em 1fr auto;
+  gap: 0.7em;
+  padding: 0.25em 0;
+  border-bottom: 1px solid var(--muted-border-color, #eee);
+  font-size: 0.92em;
+  align-items: baseline;
+}
+.cockpit-ticker-item:last-child { border-bottom: none; }
+.cockpit-ticker-item-raw {
+  display: block;
+  padding: 0.25em 0;
+}
+.cockpit-ticker-time {
+  font-family: var(--font-monospace, ui-monospace, monospace);
+  font-size: 0.88em;
+  color: var(--muted-color, #666);
+}
+.cockpit-ticker-target {
+  font-weight: 600;
+  color: var(--cockpit-action, #0969da);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cockpit-ticker-action {
+  color: var(--color, #222);
+  overflow-wrap: anywhere;
+}
+.cockpit-ticker-permalink {
+  padding: 0.1em 0.5em;
+  font-size: 0.85em;
+  color: var(--cockpit-action, #0969da);
+  border: 1px solid var(--muted-border-color, #ccc);
+  border-radius: 3px;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.cockpit-ticker-empty {
+  color: var(--muted-color, #666);
+  font-style: italic;
+  margin: 0.4em 0;
+}
+
+/* Compact stacking of ticker rows at narrow widths — grid collapses to
+   flex-wrap so time+target/action wrap gracefully. */
+@media (max-width: 640px) {
+  .cockpit-ticker-item {
+    grid-template-columns: 4.5em 1fr;
+  }
+  .cockpit-ticker-target,
+  .cockpit-ticker-action {
+    grid-column: 2;
+  }
+  .cockpit-ticker-permalink {
+    grid-column: 2;
+    justify-self: start;
+    margin-top: 0.2em;
+  }
+  .cockpit-onetap-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.15em;
+  }
+  .cockpit-onetap-preview {
+    max-width: 100%;
+  }
+}

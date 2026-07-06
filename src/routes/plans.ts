@@ -4,7 +4,7 @@ import { join } from "path";
 import type { ConsoleConfig, Source } from "../config.js";
 import { getPlansPath, findSource, getSlackToken } from "../config.js";
 import { readAndRenderPlanMarkdown, readAndRenderPlanForCockpit } from "../parsers/markdown.js";
-import { replaceDraftBody, findDraftBlocks, markDraftAsSent } from "../parsers/draft-blocks.js";
+import { replaceDraftBody, findDraftBlocks, markDraftAsSent, markDraftAsSkipped, unmarkDraftAsSkipped } from "../parsers/draft-blocks.js";
 import { recordDecision, markTaskDone, unmarkTaskDone } from "../parsers/plan-mutations.js";
 import { loadProjectsFromSources } from "../parsers/yaml.js";
 import { loadSlackDirectory } from "../parsers/slack-directory.js";
@@ -198,6 +198,9 @@ export function planRoutes(config: ConsoleConfig) {
           editable: !src.demo,
           projects,
           plansForCalendar: calendarPlans,
+          drafts: cockpitBundle.drafts,
+          slackConfigured: slackEnabled,
+          tierASendEnabled: !!src.slack?.tier_a_send_enabled,
         })
       : planDetailView({
           date,
@@ -640,7 +643,109 @@ export function planRoutes(config: ConsoleConfig) {
     return c.json({ ok: true });
   });
 
+  // ---- Wave 1 (v0.10) — NEEDS YOU one-tap: skip a draft ----
+  // Records a `**Skipped:** HH:MM TZ` marker after the body. No Slack call.
+  // Fails when the draft is already sent (Sent + Skipped are exclusive) or
+  // already skipped (idempotent). Follows the same demo=403 / bad-request /
+  // atomic-write shape as the send + decision + task endpoints.
+  app.post("/plans/:source/:date/draft/:index/skip", async (c) => {
+    const { src, filePath, error } = resolveWriteTarget(c, config);
+    if (error) return error;
+    void src;
+    const idx = parseIndexParam(c.req.param("index"));
+    if (idx === null) return c.json({ ok: false, error: "Invalid draft index." }, 400);
+
+    let body: { skippedAt?: unknown };
+    try {
+      body = (await c.req.json()) as typeof body;
+    } catch {
+      return c.json({ ok: false, error: "Invalid JSON body." }, 400);
+    }
+    const skippedAt =
+      typeof body.skippedAt === "string" && body.skippedAt.trim().length > 0
+        ? body.skippedAt.trim()
+        : localTimeLabel();
+    if (skippedAt.length > 60) {
+      return c.json({ ok: false, error: "skippedAt label too long." }, 400);
+    }
+
+    let raw: string;
+    try {
+      raw = readFileSync(filePath, "utf-8");
+    } catch {
+      return c.json({ ok: false, error: "Could not read plan file." }, 500);
+    }
+
+    const result = markDraftAsSkipped(raw, idx, skippedAt);
+    if (!result.ok) {
+      const status =
+        result.reason === "already-sent"
+          ? 409
+          : result.reason === "already-skipped"
+            ? 409
+            : result.reason === "not-found"
+              ? 404
+              : 400;
+      const message =
+        result.reason === "already-sent"
+          ? "This draft has already been sent — unsend before skipping."
+          : result.reason === "already-skipped"
+            ? "This draft was already skipped."
+            : result.reason === "not-found"
+              ? "Draft not found."
+              : "Invalid skip input.";
+      return c.json({ ok: false, error: message }, status);
+    }
+
+    if (!writeAtomic(filePath, result.newRaw)) {
+      return c.json({ ok: false, error: "Could not write plan file." }, 500);
+    }
+
+    return c.json({ ok: true, skippedAt });
+  });
+
+  // Undo skip — removes the `**Skipped:**` marker. Symmetric to unmarkTaskDone.
+  app.post("/plans/:source/:date/draft/:index/unskip", async (c) => {
+    const { src, filePath, error } = resolveWriteTarget(c, config);
+    if (error) return error;
+    void src;
+    const idx = parseIndexParam(c.req.param("index"));
+    if (idx === null) return c.json({ ok: false, error: "Invalid draft index." }, 400);
+
+    let raw: string;
+    try {
+      raw = readFileSync(filePath, "utf-8");
+    } catch {
+      return c.json({ ok: false, error: "Could not read plan file." }, 500);
+    }
+
+    const result = unmarkDraftAsSkipped(raw, idx);
+    if (!result.ok) {
+      const status = result.reason === "not-skipped" ? 409 : 404;
+      const message = result.reason === "not-skipped" ? "This draft was not marked skipped." : "Draft not found.";
+      return c.json({ ok: false, error: message }, status);
+    }
+
+    if (!writeAtomic(filePath, result.newRaw)) {
+      return c.json({ ok: false, error: "Could not write plan file." }, 500);
+    }
+
+    return c.json({ ok: true });
+  });
+
   return app;
+}
+
+/**
+ * Short local-time label used as the default `**Skipped:**` marker suffix.
+ * Format: "HH:MM TZ" e.g. "17:32 EDT". Matches the shape of `**DONE HH:MM TZ**`
+ * task markers so the two conventions read the same in the file.
+ */
+function localTimeLabel(): string {
+  const d = new Date();
+  const time = d.toLocaleTimeString("en-US", { hour12: false, hour: "2-digit", minute: "2-digit" });
+  const tz = d.toLocaleTimeString("en-US", { timeZoneName: "short" }).split(" ").pop() || "";
+  return tz ? `${time} ${tz}` : time;
 }
 
 /* -------------------------------------------------------------------------- */

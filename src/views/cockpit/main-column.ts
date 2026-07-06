@@ -28,6 +28,7 @@ import type {
   SectionKind,
 } from "../../parsers/plan-sections.js";
 import { collectAllDecisions, collectAllTasks } from "../../parsers/plan-sections.js";
+import type { DraftBlock } from "../../parsers/draft-blocks.js";
 import { escapeHtml, escapeAttr } from "../../utils.js";
 import {
   fmtAge,
@@ -37,6 +38,8 @@ import {
   renderDecisionCard,
   renderTaskBucket,
   renderDraftsRegion,
+  renderNeedsYouRegion,
+  renderTickerRegion,
   countDrafts,
   countSentToday,
 } from "./cards.js";
@@ -53,6 +56,15 @@ export interface MainColumnOpts {
   nextDate?: string;
   fileMtimeMs: number;
   editable: boolean;
+  /**
+   * All draft blocks parsed from the raw plan (v0.10+). Used to render one-tap
+   * drafts inside NEEDS YOU. Standard drafts region still uses draftsHtml.
+   */
+  drafts?: DraftBlock[];
+  /** Whether the source has a Slack token configured (env var present). */
+  slackConfigured?: boolean;
+  /** Whether Tier-A auto-send is enabled for this source (v0.10+). */
+  tierASendEnabled?: boolean;
 }
 
 export function renderMainColumn(opts: MainColumnOpts): string {
@@ -116,12 +128,70 @@ export function renderMainColumn(opts: MainColumnOpts): string {
 
       ${headerHtml ? `<div class="cockpit-header rendered-markdown">${headerHtml}</div>` : ""}
 
+      ${renderNeedsYou(opts)}
+      ${renderTicker(opts.sections)}
       ${renderMustDoToday(decisions, opts)}
       ${renderDoThisWeek(opts.sections, opts)}
       ${renderDraftsRegion(opts.draftsHtml)}
       ${renderMore(opts.sections, opts.fullMarkdownHtml)}
     </div>
   `;
+}
+
+/* -------------------------------------------------------------------------- */
+/* NEEDS YOU — Cockpit Mode Tier-B one-tap queue (v0.10+)                     */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Renders the top-of-column NEEDS YOU region. Composes:
+ *   - priority decisions from `## ⚡ Decision needed` H2 sections
+ *   - light decisions and drafts from `## ☑️ One-tap batch` H2 sections
+ *
+ * Returns empty string when neither H2 is present (legacy plans render
+ * unchanged — MUST DO TODAY continues to be the primary decision surface).
+ */
+function renderNeedsYou(opts: MainColumnOpts): string {
+  const priorityDecisions: Decision[] = [];
+  const batchDecisions: Decision[] = [];
+  for (const s of opts.sections) {
+    if (s.kind === "decision-needed") {
+      for (const d of s.decisions || []) priorityDecisions.push(d);
+    } else if (s.kind === "one-tap-batch") {
+      for (const d of s.decisions || []) batchDecisions.push(d);
+    }
+  }
+
+  // Filter drafts to those whose regionStartLine falls inside a
+  // `decision-needed` or `one-tap-batch` section. Drafts in a legacy
+  // `## Drafts` H2 or elsewhere continue to appear in the standard
+  // DRAFTS region below.
+  const drafts = opts.drafts ?? [];
+  const batchDrafts: DraftBlock[] = drafts.filter((d) =>
+    opts.sections.some(
+      (s) =>
+        (s.kind === "decision-needed" || s.kind === "one-tap-batch") &&
+        d.regionStartLine >= s.headingLine + 1 &&
+        d.regionStartLine < s.endLine
+    )
+  );
+
+  return renderNeedsYouRegion(priorityDecisions, batchDecisions, batchDrafts, {
+    editable: opts.editable,
+    sourceName: opts.sourceName,
+    planDate: opts.date,
+    slackConfigured: !!opts.slackConfigured,
+    tierASendEnabled: !!opts.tierASendEnabled,
+  });
+}
+
+/* -------------------------------------------------------------------------- */
+/* TICKER — "On your behalf" Tier-A digest (v0.10+)                           */
+/* -------------------------------------------------------------------------- */
+
+function renderTicker(sections: PlanSection[]): string {
+  const tickerSection = sections.find((s) => s.kind === "ticker");
+  if (!tickerSection) return "";
+  return renderTickerRegion(tickerSection.rawBody, false);
 }
 
 /* -------------------------------------------------------------------------- */

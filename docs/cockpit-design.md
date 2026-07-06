@@ -71,7 +71,22 @@ The parser walks the markdown's H2 headings and classifies each (case-insensitiv
 | **sync-state** | `Sync state` | "Staging/Deployment Status", "Deployment Status", "Pre-Migration Status", "Post-Release Status", "Files Created/Modified", "Test Results" |
 | **completed** | `Completed Today` | "Completed This Morning" |
 | **briefing** | `Things to Know` | "What Happened", "What Changed", "Big Things", "Carried From/Items/Forward", "Carry Forward", "Mid-day Sync", "Morning Sync", "From Slack Sync", "State Catch-Up", "Day Summary", "End of Day Summary", "Bugs (Open)", "QA Findings/Results", "CRITICAL:", "Context", "What to Watch", "Future Work", "Post-Release Issues", "Feature Requests (Carryover)", "Release Process Sync" |
+| **decision-needed** (v0.10 NEEDS YOU) | `⚡ Decision needed` | (bare text also OK) |
+| **one-tap-batch** (v0.10 NEEDS YOU) | `☑️ One-tap batch` | "Batch review" |
+| **ticker** (v0.10 TICKER) | `On your behalf` | — |
+| **brief** (v0.11 BRIEF) | `📰 Brief` | (bare text also OK) |
+| **today** (v0.12 TODAY) | `🎯 Today — N deep items` | (must be "Today —" or "Today (" prefix) |
+| **calendar** (v0.12 TODAY) | `📅 Calendar` | "Schedule today", "Today's calendar" |
+| **prep-packs** (v0.13 Meeting-prep) | `📋 Prep packs` | "Meeting prep" |
 | **other** | (any unrecognized H2) | Renders as plain markdown in the lower-row "Other" collapsible. |
+
+**Cockpit Mode (v0.10+) — the NEEDS YOU family.** When a plan uses the Cockpit Mode H2s (see synthesis-daily-rituals v2.10.0+), the parser routes items into surfaces designed for a preemption-heavy day:
+
+- `## ⚡ Decision needed` (`decision-needed`) holds a **single** priority-1 decision — the one thing that most needs an answer today. Renders at the top of NEEDS YOU with distinct styling.
+- `## ☑️ One-tap batch` (`one-tap-batch`) holds the day's **Tier-B queue**: drafts (using the standard `**Send to:**` + fenced/blockquote body pattern) and lightweight decisions with options. Each item renders as a compact card in NEEDS YOU with APPROVE / EDIT / SKIP affordances. Target: clear in ≤10 minutes twice a day.
+- `## On your behalf` (`ticker`) holds the **Tier-A digest** — everything the agent sent on the user's behalf. Each item is a list line of shape `- HH:MM · target · action · [permalink](url)`. Renders as a lower-row collapsible.
+
+Drafts inside `decision-needed` or `one-tap-batch` H2s render **only** in NEEDS YOU — the standard `## Drafts` region excludes them so nothing double-renders. Drafts under any other H2 (including the legacy `## Drafts — Ready to Send`) continue to render in the standard DRAFTS region.
 
 If you write a plan with section names not in this table, those sections still display — they just live in the catch-all "Other" collapsible at the bottom. They are never hidden or dropped.
 
@@ -167,6 +182,8 @@ becomes
 Only the bold title is struck. The description stays readable so the line still tells you what was done. Unmark-done reverses this; it only undoes when the marker matches exactly the format the cockpit wrote, so manual edits to a task line aren't auto-reversible.
 
 **Compare-and-swap discipline.** If the file changed since the cockpit page loaded (you edited the markdown in another editor, or another sync wrote to it), the server returns 409 with "reload and retry." The write is never partial — the cockpit uses a temp-file-plus-rename atomic write, the same pattern the v0.5 inline-draft-edit and v0.6 sent-marker writes already use.
+
+**Skipping a NEEDS-YOU draft (v0.10+)** inserts a `**Skipped:** HH:MM TZ` paragraph after the body, parallel to how `**Sent:**` is inserted after a successful send. The body stays intact so no content is lost. `Skipped` and `Sent` are mutually exclusive — attempting to skip a sent draft returns 409 with "unsend before skipping." Undo-skip removes the marker cleanly and returns the file byte-exact to its pre-skip state.
 
 ---
 

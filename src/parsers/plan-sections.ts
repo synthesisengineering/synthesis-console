@@ -21,15 +21,22 @@ import MarkdownIt from "markdown-it";
 export type SectionKind =
   | "header"
   | "decisions"
+  | "decision-needed"      // v0.10 (Cockpit Mode) — a priority-1 decision surfaced above regular decisions
+  | "one-tap-batch"        // v0.10 (Cockpit Mode) — the Tier-B queue: drafts + light decisions for batch review
+  | "ticker"               // v0.10 (Cockpit Mode) — "## On your behalf" digest of Tier-A actions
   | "priority-tasks"
   | "drafts"
   | "briefing"
+  | "brief"                // v0.11 (Cockpit Mode) — "## Brief" ≤90-second morning narrative
   | "standup"
   | "sent-messages"
   | "waiting"
   | "pr-queue"
   | "sync-state"
   | "completed"
+  | "today"                // v0.12 (Cockpit Mode) — "## Today — N deep items" Tier-C slots
+  | "calendar"             // v0.12 (Cockpit Mode) — "## Calendar" — ritual-fetched events
+  | "prep-packs"           // v0.13 (Cockpit Mode) — "## Prep packs" — index of today's meeting-prep files
   | "other";
 
 export type TaskSemantic = "p0" | "p1" | "p2" | "watch" | "stale" | "other";
@@ -136,9 +143,18 @@ function classifyH2(text: string): SectionKind {
   // "~~CRITICAL: v0.81.0 Staging Regressions~~" still classify.
   const t = text
     .replace(/~~/g, "")
-    .replace(/[🚨🔥🚀🟡🟢💡📞🤖🧪🆕✅⚠️⛔🎯📋🔧📌]/g, "")
+    .replace(/[🚨🔥🚀🟡🟢💡📞🤖🧪🆕✅⚠️⛔🎯📋🔧📌⚡📰☑️📅📆🧞‍♂️📓🗓]/g, "")
     .trim()
     .toLowerCase();
+  // Cockpit Mode (v2.10.0+ producer) — order matters, more-specific matches
+  // come before the generic "decisions" catchall.
+  if (/^decision\s+needed\b/i.test(t)) return "decision-needed";
+  if (/^one[-\s]?tap\s+batch\b|^batch\s+review\b/i.test(t)) return "one-tap-batch";
+  if (/^on\s+your\s+behalf\b/i.test(t)) return "ticker";
+  if (/^brief\b/i.test(t)) return "brief";
+  if (/^today\b\s*(?:—|-|\()/i.test(t)) return "today";
+  if (/^calendar\b|^schedule\s+today\b|^today'?s?\s+calendar\b/i.test(t)) return "calendar";
+  if (/^prep\s+packs?\b|^meeting\s+prep\b/i.test(t)) return "prep-packs";
   // Decisions / open asks — anything Rajiv needs to attend to / decide.
   if (/decisions?\s+(?:needed|to\s+make)|open\s+asks?\b|asks?\s+for\s+rajiv|open\s+items?\b|need(?:s)?\s+(?:your\s+)?attention|open\s+quality\s+concerns?/i.test(t)) return "decisions";
   // Priority tasks.
@@ -238,11 +254,19 @@ export function findPlanSections(raw: string): PlanSection[] {
       rawBody,
     };
 
-    if (kind === "decisions") {
+    if (kind === "decisions" || kind === "decision-needed" || kind === "one-tap-batch") {
+      // Cockpit Mode sections use the same H3-with-Options structure as
+      // legacy decisions sections. one-tap-batch may hold decisions AND
+      // drafts (see draft-blocks.ts for draft detection); the decision
+      // extractor only picks up H3s that have Option markers or prose
+      // bodies, so drafts (which use `**Send to:**` bodies) pass through
+      // untouched.
       const result = extractDecisions(lines, h2.line, endLine, decisionIndex, h2.text);
       section.decisions = result.decisions;
       decisionIndex = result.nextIndex;
-    } else if (kind === "priority-tasks") {
+    } else if (kind === "priority-tasks" || kind === "today") {
+      // `today` H2 (Tier-C slots) uses the same H3-per-slot pattern; each
+      // slot is a task with priority context. Reuse the task extractor.
       const result = extractTaskBuckets(lines, h2.line, endLine, taskIndex);
       section.taskBuckets = result.buckets;
       taskIndex = result.nextIndex;
@@ -258,8 +282,13 @@ export function findPlanSections(raw: string): PlanSection[] {
 /* Decision extraction                                                         */
 /* -------------------------------------------------------------------------- */
 
-const OPTION_INLINE_RE = /^\s*\*\*\s*Option\s+([A-Z])\s*:?\s*\*\*\s*(.*)$/i;
-const RECOMMENDATION_INLINE_RE = /^\s*Recommendation\s*:\s*\*\*\s*([A-Z])\s*\*\*\s*(.*)$/i;
+// Option markers appear either as bare paragraphs (`**Option A:** ...`) or as
+// bulleted list items (`- **Option A:** ...`, `* **Option A:** ...`, or
+// numbered `1. **Option A:** ...`). The producer-consumer contract allows both
+// since agentic writers vary in shape (Postel's Law); the parser tolerates the
+// optional list marker and captures the same option letter + body regardless.
+const OPTION_INLINE_RE = /^\s*(?:[-*+]\s+|\d+\.\s+)?\*\*\s*Option\s+([A-Z])\s*:?\s*\*\*\s*(.*)$/i;
+const RECOMMENDATION_INLINE_RE = /^\s*(?:[-*+]\s+|\d+\.\s+)?Recommendation\s*:\s*\*\*\s*([A-Z])\s*\*\*\s*(.*)$/i;
 const DECIDED_INLINE_RE = /^\s*\*\*\s*Decided\s*:?\s*\*\*\s*Option\s+([A-Z])\s*[—-]?\s*(.*)$/i;
 
 function extractDecisions(
@@ -306,9 +335,20 @@ function extractDecisions(
   }
 
   const decisions: Decision[] = [];
+  const SEND_TO_H3_BODY_RE = /^\s*\*\*\s*(?:Send to|Channel)\s*:?\s*\*\*/i;
   for (let i = 0; i < h3s.length; i++) {
     const h3 = h3s[i];
     const endLine = i + 1 < h3s.length ? h3s[i + 1].line : h2EndLine;
+
+    // Skip H3s that look like drafts (their first non-blank line is
+    // `**Send to:**`). Drafts are surfaced by findDraftBlocks — synthesizing
+    // them as decision cards here would double-render them in one-tap-batch
+    // regions where drafts and decisions coexist.
+    let firstNonBlank = h3.line + 1;
+    while (firstNonBlank < endLine && (lines[firstNonBlank] ?? "").trim() === "") firstNonBlank++;
+    if (firstNonBlank < endLine && SEND_TO_H3_BODY_RE.test(lines[firstNonBlank] ?? "")) {
+      continue;
+    }
 
     // Strip leading "1. " or "2. " numbering from the question text if present.
     const question = h3.text.replace(/^\d+\.\s*/, "").trim();
