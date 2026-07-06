@@ -519,6 +519,37 @@ export function renderTickerRegion(rawBody: string, openByDefault = false): stri
 }
 
 /* -------------------------------------------------------------------------- */
+/* v0.11 — BRIEF region ("Brief")                                             */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The ≤90-second morning narrative. Rendered right below the day header at
+ * the top of the main column so it's the first substantive thing Rajiv
+ * reads at day-start. Not collapsed by default (unlike TICKER); the content
+ * IS the point of the region.
+ *
+ * The body is rendered markdown as-is. Producer contract (v2.10.0+ Cockpit
+ * Mode): keep it a short paragraph (or a few sentences) — the "≤90 second"
+ * bound is enforced by editorial discipline in the skill, not the parser.
+ */
+export function renderBriefRegion(rawBody: string): string {
+  const trimmed = rawBody.trim();
+  if (trimmed.length === 0) {
+    return "";
+  }
+  const bodyHtml = md.render(trimmed);
+  return `
+    <section class="cockpit-region cockpit-region-brief" data-region="brief" aria-label="Morning brief">
+      <h2 class="cockpit-region-title">
+        BRIEF
+        <span class="cockpit-region-subtitle">≤90 seconds</span>
+      </h2>
+      <div class="cockpit-brief-body rendered-markdown">${bodyHtml}</div>
+    </section>
+  `;
+}
+
+/* -------------------------------------------------------------------------- */
 /* Helpers                                                                    */
 /* -------------------------------------------------------------------------- */
 

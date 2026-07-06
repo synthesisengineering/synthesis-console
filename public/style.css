@@ -2835,6 +2835,41 @@ body[data-cockpit-focus="true"] .cockpit-shell .cockpit-header {
 }
 
 /* ============================================================
+   v0.11 — Cockpit Mode: BRIEF region
+   ============================================================ */
+
+.cockpit-region-brief {
+  margin-bottom: 1em;
+  padding: 0.6em 0.9em 0.8em;
+  border-left: 3px solid var(--cockpit-context, #6b7280);
+  background: var(--cockpit-body-bg, rgba(0, 0, 0, 0.02));
+  border-radius: 4px;
+}
+.cockpit-region-brief .cockpit-region-title {
+  font-size: 0.9em;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted-color, #666);
+  margin: 0 0 0.4em;
+  display: flex;
+  align-items: baseline;
+  gap: 0.6em;
+}
+.cockpit-region-brief .cockpit-region-subtitle {
+  font-size: 0.75em;
+  font-weight: normal;
+  color: var(--muted-color, #888);
+  letter-spacing: 0;
+  text-transform: none;
+}
+.cockpit-brief-body {
+  font-size: 0.97em;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.cockpit-brief-body p:last-child { margin-bottom: 0; }
+
+/* ============================================================
    v0.10 — Cockpit Mode: NEEDS YOU + TICKER regions
    ============================================================ */
 

@@ -40,6 +40,7 @@ import {
   renderDraftsRegion,
   renderNeedsYouRegion,
   renderTickerRegion,
+  renderBriefRegion,
   countDrafts,
   countSentToday,
 } from "./cards.js";
@@ -128,6 +129,7 @@ export function renderMainColumn(opts: MainColumnOpts): string {
 
       ${headerHtml ? `<div class="cockpit-header rendered-markdown">${headerHtml}</div>` : ""}
 
+      ${renderBrief(opts.sections)}
       ${renderNeedsYou(opts)}
       ${renderTicker(opts.sections)}
       ${renderMustDoToday(decisions, opts)}
@@ -192,6 +194,16 @@ function renderTicker(sections: PlanSection[]): string {
   const tickerSection = sections.find((s) => s.kind === "ticker");
   if (!tickerSection) return "";
   return renderTickerRegion(tickerSection.rawBody, false);
+}
+
+/* -------------------------------------------------------------------------- */
+/* BRIEF — Cockpit Mode ≤90-second morning narrative (v0.11+)                 */
+/* -------------------------------------------------------------------------- */
+
+function renderBrief(sections: PlanSection[]): string {
+  const briefSection = sections.find((s) => s.kind === "brief");
+  if (!briefSection) return "";
+  return renderBriefRegion(briefSection.rawBody);
 }
 
 /* -------------------------------------------------------------------------- */

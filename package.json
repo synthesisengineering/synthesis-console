@@ -1,6 +1,6 @@
 {
   "name": "synthesis-console",
-  "version": "0.10.0",
+  "version": "0.11.0",
   "description": "Local dashboard for synthesis engineering — renders project management files as browsable, searchable pages",
   "type": "module",
   "scripts": {
