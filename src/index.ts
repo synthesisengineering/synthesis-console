@@ -39,13 +39,14 @@ const app = new Hono();
 // normally — they only change with a redeploy.
 app.use("*", async (c, next) => {
   await next();
-  if (c.req.path === "/style.css") return;
+  if (c.req.path === "/style.css" || c.req.path === "/favicon.svg") return;
   c.res.headers.set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
   c.res.headers.set("Pragma", "no-cache");
   c.res.headers.set("Expires", "0");
 });
 
 app.use("/style.css", serveStatic({ root: "./public" }));
+app.use("/favicon.svg", serveStatic({ root: "./public" }));
 
 app.get("/", (c) => c.redirect("/projects"));
 

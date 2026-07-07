@@ -3282,6 +3282,11 @@ body[data-cockpit-focus="true"] .cockpit-shell .cockpit-header {
   font-size: 0.82em;
   color: var(--muted-color, #666);
 }
+.cockpit-slot-prose {
+  font-size: 0.92em;
+  margin: 0.2em 0 0.3em;
+}
+.cockpit-slot-prose p:last-child { margin-bottom: 0; }
 
 /* ============================================================
    v0.11 — Cockpit Mode: BRIEF region

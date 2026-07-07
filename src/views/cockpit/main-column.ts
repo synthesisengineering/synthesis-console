@@ -95,6 +95,17 @@ export function renderMainColumn(opts: MainColumnOpts): string {
   const draftCount = countDrafts(opts.draftsHtml);
   const sentToday = countSentToday(opts.draftsHtml);
 
+  // Cockpit Mode decisions (decision-needed / one-tap-batch) render in
+  // NEEDS YOU; MUST DO TODAY gets ONLY legacy `decisions`-kind sections —
+  // otherwise every cockpit-mode decision renders twice on the page.
+  const legacyDecisions: Decision[] = [];
+  for (const s of opts.sections) {
+    if (s.kind === "decisions") {
+      for (const d of s.decisions || []) legacyDecisions.push(d);
+    }
+  }
+  const needsYouHtml = renderNeedsYou(opts);
+
   const prevLink = opts.prevDate
     ? `<a href="/plans/${encodeURIComponent(opts.sourceName)}/${opts.prevDate}" rel="prev">&larr; ${escapeHtml(opts.prevDate)}</a>`
     : `<span class="muted">&larr;</span>`;
@@ -146,11 +157,11 @@ export function renderMainColumn(opts: MainColumnOpts): string {
       ${headerHtml ? `<div class="cockpit-header rendered-markdown">${headerHtml}</div>` : ""}
 
       ${renderBrief(opts.sections)}
-      ${renderNeedsYou(opts)}
+      ${needsYouHtml}
       ${renderToday(opts)}
       ${renderPrepPacks(opts)}
       ${renderTicker(opts.sections)}
-      ${renderMustDoToday(decisions, opts)}
+      ${renderMustDoToday(legacyDecisions, opts, needsYouHtml !== "")}
       ${renderDoThisWeek(opts.sections, opts)}
       ${renderDraftsRegion(opts.draftsHtml)}
       ${renderMore(opts.sections, opts.fullMarkdownHtml)}
@@ -321,7 +332,7 @@ function renderBrief(sections: PlanSection[]): string {
 /* MUST DO TODAY — open decisions + P0 task buckets                           */
 /* -------------------------------------------------------------------------- */
 
-function renderMustDoToday(decisions: Decision[], opts: MainColumnOpts): string {
+function renderMustDoToday(decisions: Decision[], opts: MainColumnOpts, needsYouPresent: boolean): string {
   const taskSections = opts.sections.filter((s) => s.kind === "priority-tasks");
   const p0Buckets: TaskBucket[] = [];
   for (const s of taskSections) {
@@ -332,6 +343,10 @@ function renderMustDoToday(decisions: Decision[], opts: MainColumnOpts): string 
 
   const hasContent = decisions.length > 0 || p0Buckets.length > 0;
   if (!hasContent) {
+    // When NEEDS YOU rendered above with open items, an "All caught up"
+    // message here would contradict it — suppress the empty state and
+    // the region entirely on Cockpit Mode plans.
+    if (needsYouPresent) return "";
     return `
       <section class="cockpit-region cockpit-region-needs cockpit-region-empty" data-region="must-do-today" aria-label="Must do today">
         <h2 class="cockpit-region-title">MUST DO TODAY</h2>

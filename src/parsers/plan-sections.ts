@@ -119,6 +119,13 @@ export interface TaskBucket {
   label: string;
   semantic: TaskSemantic;
   tasks: PlanTask[];
+  /**
+   * Body lines of the bucket that are NOT part of any task list item —
+   * markdown prose describing the bucket (v0.12+ Tier-C slots often carry
+   * a prose description instead of, or alongside, task items). Preserved
+   * so nothing renders as lost.
+   */
+  proseBody: string;
 }
 
 const md = new MarkdownIt({ html: true, linkify: true, typographer: true });
@@ -373,7 +380,11 @@ function extractDecisions(
       const recMatch = ln.match(RECOMMENDATION_INLINE_RE);
       if (recMatch) {
         recommendationLetter = recMatch[1].toUpperCase();
-        recommendationBody = recMatch[2].trim();
+        const recBody = recMatch[2].trim();
+        // A body that is only punctuation (e.g. the trailing "." in
+        // "Recommendation: **A**.") is noise — treat as absent so the
+        // card doesn't render a dangling "— .".
+        recommendationBody = /[\p{L}\p{N}]/u.test(recBody) ? recBody : undefined;
         continue;
       }
 
@@ -442,6 +453,7 @@ function extractTaskBuckets(
           label: "",
           semantic: "other",
           tasks,
+          proseBody: proseOutsideTasks(lines, h2Line + 1, h2EndLine, tasks),
         },
       ],
       nextIndex: startIndex + tasks.length,
@@ -463,10 +475,32 @@ function extractTaskBuckets(
       label: h3.text,
       semantic: classifyH3(h3.text),
       tasks,
+      proseBody: proseOutsideTasks(lines, h3.line + 1, endLine, tasks),
     });
   }
 
   return { buckets, nextIndex: cursor };
+}
+
+/**
+ * Bucket body lines that fall outside every task's line range — the prose
+ * description of the bucket, if any. Returned as trimmed markdown.
+ */
+function proseOutsideTasks(
+  lines: string[],
+  startLine: number,
+  endLineExclusive: number,
+  tasks: PlanTask[]
+): string {
+  const covered = new Set<number>();
+  for (const t of tasks) {
+    for (let i = t.startLine; i <= t.endLine; i++) covered.add(i);
+  }
+  const prose: string[] = [];
+  for (let i = startLine; i < endLineExclusive; i++) {
+    if (!covered.has(i)) prose.push(lines[i] ?? "");
+  }
+  return prose.join("\n").trim();
 }
 
 /**

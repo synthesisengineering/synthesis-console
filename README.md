@@ -44,6 +44,37 @@ Synthesis engineering is a discipline for structured human-AI collaboration — 
 
 ![Plan detail with mention pills and action bar](screenshots/plan-detail.png)
 
+## What v1.0 adds — Cockpit Mode: the transaction cockpit
+
+v1.0 completes the console's graduation from *plan viewer* to *transaction cockpit* — the surface a person works FROM between meetings, not just a rendering they glance at. It pairs with Cockpit Mode plans (synthesis-daily-rituals v2.10+): budget-bound, stakes-routed daily plans built for calendars that preempt.
+
+**Five new plan-page surfaces**, rendered only when the plan carries the corresponding sections (legacy plans render exactly as before):
+
+- **Portfolio lane strip** — one chip per active initiative across ALL active sources, worst health first. Health is file-derived: explicit 🔴 / ⚠️ / ✅ markers in member projects' CONTEXT.md win; staleness of `last_session` contributes at most a warning (inference prompts a check-in; only an explicit assertion raises an alarm). There is no hand-curation UI — lanes are ritual-generated or they rot.
+- **BRIEF** — the ≤90-second morning narrative (`## 📰 Brief`), always visible below the day header.
+- **NEEDS YOU** — the one-tap queue: a priority decision from `## ⚡ Decision needed` plus drafts and light decisions from `## ☑️ One-tap batch`, each as a compact card with **Approve / Edit / Skip**. Skip writes a `**Skipped:**` marker (undoable); Approve sends through the existing confirm-modal Slack flow, or Smart-Copies when no token is configured. Target: clear the queue in ≤10 minutes, twice a day.
+- **TODAY** — the day's time budget as a bar (committed vs buffer, with a warning state above the 70% guideline), the ritual-written `## 📅 Calendar`, and the ≤3 deep-work slots with window chips; a calendar event overlapping a slot's window flags ⚡ preemption — visualized, not mourned.
+- **TICKER** — the "On your behalf" digest (`## On your behalf`): every agent-sent action with time, target, and permalink. Trust through total visibility.
+
+**Two new top-level views:**
+
+- **People** (`/people`) — a commitments view derived at read time from the last 30 days of plans and prep packs: who owes me, whom I owe (open drafts), last touch, next meeting, prep-pack links. No roster file to maintain — the view is as true as the files.
+- **Ledger** (`/ledger`) — catch-up ledgers (synthesis-catchup-ledger skill) rendered live with the six-state taxonomy: actionable, decaying (with do-by), delegated-unverified, done-late, expired-with-lesson, released. Recognition-class rows get a tag so the consolidated-kudos decay pattern stays visible.
+
+**Plus:** meeting-prep packs — ritual-generated one-pagers at `meeting-preps/YYYY-MM-DD-HHMM-slug.md` (calendar × transcripts × project context × open commitments), listed as cards on the plan page and rendered at `/prep/:source/:slug`.
+
+**The v1.0 cockpit** — portfolio strip, budget bar, BRIEF, NEEDS YOU one-taps, TODAY slots with preemption flags, prep packs, TICKER (see the plan-detail screenshot above under Screenshots).
+
+**Ledger** — the six-state commitments reconciliation, rendered live:
+
+![Catch-up ledger with decay-state chips](screenshots/ledger.png)
+
+**People** — commitments and touchpoints, derived entirely from files:
+
+![People view with owed/owing commitments and next meetings](screenshots/people.png)
+
+Producer contracts for all of the above live in [`docs/cockpit-design.md`](docs/cockpit-design.md) and the synthesis-daily-rituals / synthesis-catchup-ledger skills — producer and consumer change together.
+
 ## What v0.9+ adds for daily plans
 
 The plan detail view becomes a **three-column cockpit**: calendar + active projects on the left, today's actionable work in the center, today's wins + waiting-on others on the right. Color through left-border accents on cards rather than oversized headings; compact rows; sent/done items collapse by default. At <1024px the columns collapse to a single column with sidebars rendered as `<details>` blocks above the main content.

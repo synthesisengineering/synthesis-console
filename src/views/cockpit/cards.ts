@@ -626,17 +626,28 @@ export function renderTodaySlot(slot: TodaySlotView, opts: TaskBucketOpts): stri
   const preemption = slot.overlapTitle
     ? `<span class="cockpit-slot-preempted" title="A calendar event overlaps this window">⚡ ${escapeHtml(slot.overlapTitle)}</span>`
     : "";
-  const tasksHtml = slot.bucket.tasks.map((t) => renderTask(t, { editable: opts.editable })).join("\n");
+  const tasksHtml = slot.bucket.tasks.length > 0
+    ? `<ol class="cockpit-task-list">${slot.bucket.tasks.map((t) => renderTask(t, { editable: opts.editable })).join("\n")}</ol>`
+    : "";
+  // Tier-C slots often carry a prose description instead of task items —
+  // render it so the slot's substance is visible, not just its header.
+  const proseHtml = slot.bucket.proseBody
+    ? `<div class="cockpit-slot-prose rendered-markdown">${md.render(slot.bucket.proseBody)}</div>`
+    : "";
   const doneCount = slot.bucket.tasks.filter((t) => t.done).length;
+  const countChip = slot.bucket.tasks.length > 0
+    ? `<span class="cockpit-slot-count">${doneCount} / ${slot.bucket.tasks.length}</span>`
+    : "";
   return `
     <article class="cockpit-slot${slot.overlapTitle ? " cockpit-slot-has-overlap" : ""}" data-bucket-index="${slot.bucket.index}">
       <header class="cockpit-slot-header">
         <span class="cockpit-slot-label">${escapeHtml(slot.bucket.label || "Deep work")}</span>
         ${windowChip}
         ${preemption}
-        <span class="cockpit-slot-count">${doneCount} / ${slot.bucket.tasks.length}</span>
+        ${countChip}
       </header>
-      <ol class="cockpit-task-list">${tasksHtml}</ol>
+      ${proseHtml}
+      ${tasksHtml}
     </article>
   `;
 }
