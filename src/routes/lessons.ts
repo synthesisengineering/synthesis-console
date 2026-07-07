@@ -5,10 +5,11 @@ import type { ConsoleConfig, Source } from "../config.js";
 import { getLessonsPath, findSource } from "../config.js";
 import { readAndRenderMarkdown } from "../parsers/markdown.js";
 import { layout } from "../views/layout.js";
+import { sourceGateView } from "../views/source-gate.js";
 import { lessonListView, lessonDetailView } from "../views/lesson.js";
 import type { LessonEntry } from "../views/lesson.js";
 import { escapeHtml, sanitizePathSegment } from "../utils.js";
-import { activeSources } from "../active-sources.js";
+import { activeSources, isSourceActive } from "../active-sources.js";
 
 function parseLessonFilename(filename: string): Omit<LessonEntry, "source"> | null {
   const match = filename.match(/^(\d{4}-\d{2}-\d{2})-(.+)\.md$/);
@@ -80,6 +81,19 @@ export function lessonRoutes(config: ConsoleConfig) {
 
     const src = findSource(config.sources, sourceName);
     if (!src) return notFound(c, config, active, `Source "${escapeHtml(sourceName)}" not found.`);
+
+    if (!isSourceActive(c, config, src.name)) {
+      return c.html(
+        layout({
+          title: "Source not active",
+          content: sourceGateView({ sourceName: src.name, currentPath: c.req.path, activeNames: active.map((s) => s.name) }),
+          sources: config.sources,
+          activeSourceNames: active.map((s) => s.name),
+          demoMode: config.demoMode,
+        }),
+        404
+      );
+    }
 
     const lessonsDir = getLessonsPath(src);
     if (!lessonsDir) {

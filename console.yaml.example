@@ -18,6 +18,8 @@
 #     lessons_dir:     relative path to lessons dir — contributes the lessons view (optional)
 #     plans_dir:       relative path to daily-plans dir — contributes the plans view (optional)
 #     notes_dir:       relative path to notes dir — reserved for Phase 3 wiki viewer (optional)
+#     preps_dir:       relative path to meeting-preps dir — contributes /prep pages + plan-page cards (v1.0+, optional)
+#     ledgers_dir:     relative path to catchup-ledgers dir — contributes the /ledger view + sidebar digest (v1.0+, optional)
 #     default_active:  true/false — pre-selected on first run (optional, default false)
 #     demo:            true/false — marks as demo data (optional, default false)
 #     slack:           Slack integration (v0.6+); see below and docs/slack-integration.md
@@ -31,6 +33,10 @@
 #                       (token NOT stored in YAML for security)
 #     users_file:       path (relative to source.root) to slack-users.yaml
 #     channels_file:    path (relative to source.root) to slack-channels.yaml
+#     tier_a_send_enabled: true/false (default false) — one-tap Approve on Tier-A
+#                       drafts sends directly without the confirm modal. Flip to
+#                       true only after granting standing approval of the Tier-A
+#                       authority matrix (see working-system design §4).
 #
 # A source contributes to a view if and only if its corresponding *_dir field is set.
 # Omit a field and the source contributes nothing to that view. The source can still
@@ -45,6 +51,8 @@ sources:
     projects_dir: projects
     lessons_dir: lessons
     plans_dir: daily-plans
+    preps_dir: meeting-preps
+    ledgers_dir: catchup-ledgers
     default_active: true
 
     # Slack integration (v0.6+) — opt-in. Uncomment + populate to enable mention

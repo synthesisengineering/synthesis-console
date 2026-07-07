@@ -15,10 +15,11 @@ import { computePeople } from "../parsers/people.js";
 import { readPrepPack } from "../parsers/prep-pack.js";
 import { renderMarkdown } from "../parsers/markdown.js";
 import { layout } from "../views/layout.js";
+import { sourceGateView } from "../views/source-gate.js";
 import { peopleView } from "../views/people.js";
 import { prepView } from "../views/prep.js";
 import { sanitizePathSegment } from "../utils.js";
-import { activeSources } from "../active-sources.js";
+import { activeSources, isSourceActive } from "../active-sources.js";
 
 const PEOPLE_WINDOW_DAYS = 30;
 
@@ -57,6 +58,18 @@ export function peopleRoutes(config: ConsoleConfig): Hono {
       );
     }
     const src = findSource(config.sources, sourceName);
+    if (src && !isSourceActive(c, config, src.name)) {
+      return c.html(
+        layout({
+          title: "Source not active",
+          content: sourceGateView({ sourceName: src.name, currentPath: c.req.path, activeNames: active.map((s) => s.name) }),
+          sources: config.sources,
+          activeSourceNames: active.map((s) => s.name),
+          demoMode: config.demoMode,
+        }),
+        404
+      );
+    }
     const pack = src ? readPrepPack(src, slug) : null;
     if (!pack) {
       return c.html(

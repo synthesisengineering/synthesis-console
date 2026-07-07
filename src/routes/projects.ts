@@ -13,11 +13,12 @@ import {
 import type { ProjectWithSource, InitiativeWithSource } from "../parsers/yaml.js";
 import { readAndRenderMarkdown } from "../parsers/markdown.js";
 import { layout } from "../views/layout.js";
+import { sourceGateView } from "../views/source-gate.js";
 import { projectListView } from "../views/project-list.js";
 import { projectDetailView } from "../views/project-detail.js";
 import { sessionDetailView } from "../views/session.js";
 import { escapeHtml, sanitizePathSegment } from "../utils.js";
-import { activeSources } from "../active-sources.js";
+import { activeSources, isSourceActive } from "../active-sources.js";
 
 export function projectRoutes(config: ConsoleConfig) {
   const app = new Hono();
@@ -83,6 +84,19 @@ export function projectRoutes(config: ConsoleConfig) {
     const src = findSource(config.sources, sourceName);
     if (!src) {
       return notFound(c, config, active, `Source "${escapeHtml(sourceName)}" not found.`);
+    }
+
+    if (!isSourceActive(c, config, src.name)) {
+      return c.html(
+        layout({
+          title: "Source not active",
+          content: sourceGateView({ sourceName: src.name, currentPath: c.req.path, activeNames: active.map((s) => s.name) }),
+          sources: config.sources,
+          activeSourceNames: active.map((s) => s.name),
+          demoMode: config.demoMode,
+        }),
+        404
+      );
     }
 
     const projects = loadProjectsFromSources([src]);
@@ -169,6 +183,19 @@ export function projectRoutes(config: ConsoleConfig) {
 
     const src = findSource(config.sources, sourceName);
     if (!src) return notFound(c, config, active, `Source "${escapeHtml(sourceName)}" not found.`);
+
+    if (!isSourceActive(c, config, src.name)) {
+      return c.html(
+        layout({
+          title: "Source not active",
+          content: sourceGateView({ sourceName: src.name, currentPath: c.req.path, activeNames: active.map((s) => s.name) }),
+          sources: config.sources,
+          activeSourceNames: active.map((s) => s.name),
+          demoMode: config.demoMode,
+        }),
+        404
+      );
+    }
 
     const projects = loadProjectsFromSources([src]);
     const project = getProjectById(projects, projectId);

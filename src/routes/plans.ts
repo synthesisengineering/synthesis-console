@@ -15,13 +15,14 @@ import { loadSlackDirectory } from "../parsers/slack-directory.js";
 import { resolveMentions, listResolvedMentions } from "../parsers/slack-mentions.js";
 import { postSlackMessage } from "../integrations/slack-send.js";
 import { layout } from "../views/layout.js";
+import { sourceGateView } from "../views/source-gate.js";
 import { planListView, planDetailView } from "../views/plan.js";
 import { planCockpitView } from "../views/plan-cockpit.js";
 import { planRolloverView } from "../views/plan-rollover.js";
 import { findCarryoverTasks, countCarryoverTasks } from "../parsers/plan-rollover.js";
 import type { PlanEntry } from "../views/plan.js";
 import { escapeHtml, sanitizePathSegment } from "../utils.js";
-import { activeSources } from "../active-sources.js";
+import { activeSources, isSourceActive } from "../active-sources.js";
 
 const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
@@ -101,6 +102,19 @@ export function planRoutes(config: ConsoleConfig) {
     const src = findSource(config.sources, sourceName);
     if (!src) return notFound(c, config, active, `Source "${escapeHtml(sourceName)}" not found.`);
 
+    if (!isSourceActive(c, config, src.name)) {
+      return c.html(
+        layout({
+          title: "Source not active",
+          content: sourceGateView({ sourceName: src.name, currentPath: c.req.path, activeNames: active.map((s) => s.name) }),
+          sources: config.sources,
+          activeSourceNames: active.map((s) => s.name),
+          demoMode: config.demoMode,
+        }),
+        404
+      );
+    }
+
     const plansDir = getPlansPath(src);
     if (!plansDir) {
       return notFound(c, config, active, `Source "${escapeHtml(sourceName)}" does not provide daily plans.`);
@@ -146,6 +160,19 @@ export function planRoutes(config: ConsoleConfig) {
 
     const src = findSource(config.sources, sourceName);
     if (!src) return notFound(c, config, active, `Source "${escapeHtml(sourceName)}" not found.`);
+
+    if (!isSourceActive(c, config, src.name)) {
+      return c.html(
+        layout({
+          title: "Source not active",
+          content: sourceGateView({ sourceName: src.name, currentPath: c.req.path, activeNames: active.map((s) => s.name) }),
+          sources: config.sources,
+          activeSourceNames: active.map((s) => s.name),
+          demoMode: config.demoMode,
+        }),
+        404
+      );
+    }
 
     const plansDir = getPlansPath(src);
     if (!plansDir) {

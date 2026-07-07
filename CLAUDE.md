@@ -20,7 +20,7 @@ Local dashboard for synthesis engineering. Renders markdown and YAML project man
 
 ### Source composition model (v0.2+)
 
-Config declares a list of **sources**. Each source is self-describing: a name, a root directory, and one optional sub-path field per content type (`projects_dir`, `lessons_dir`, `plans_dir`, `notes_dir`, `preps_dir`, `ledgers_dir`). A source contributes to a view iff its corresponding sub-path is declared. Composition is a union of any active subset of sources; selection persists in the `sc_sources` cookie.
+Config declares a list of **sources**. Each source is self-describing: a name, a root directory, and one optional sub-path field per content type (`projects_dir`, `lessons_dir`, `plans_dir`, `notes_dir`, `preps_dir`, `ledgers_dir`). A source contributes to a view iff its corresponding sub-path is declared. Composition is a union of any active subset of sources; selection persists in the `sc_sources` cookie. As of v1.0.1 the active-source selection also GATES source-scoped detail routes — a URL naming a deselected source renders a 404 "Source not active" page (with a request-scoped `?sources=` escape hatch), so picker state is a real view boundary, not just a list filter.
 
 Full rationale: `~/workspaces/rajiv/ai-knowledge-rajiv/projects/synthesis-console-build/adr-001-symmetric-sources.md`.
 

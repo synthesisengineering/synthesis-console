@@ -14,8 +14,9 @@ import { listLedgers, readLedger } from "../parsers/ledger.js";
 import type { LedgerEntry } from "../parsers/ledger.js";
 import { layout } from "../views/layout.js";
 import { ledgerView, ledgerEmptyView } from "../views/ledger.js";
+import { sourceGateView } from "../views/source-gate.js";
 import { sanitizePathSegment } from "../utils.js";
-import { activeSources } from "../active-sources.js";
+import { activeSources, isSourceActive } from "../active-sources.js";
 
 export function ledgerRoutes(config: ConsoleConfig): Hono {
   const app = new Hono();
@@ -44,6 +45,18 @@ export function ledgerRoutes(config: ConsoleConfig): Hono {
     const sourceName = sanitizePathSegment(c.req.param("source"));
     const date = sanitizePathSegment(c.req.param("date"));
     const src = sourceName ? findSource(config.sources, sourceName) : undefined;
+    if (src && !isSourceActive(c, config, src.name)) {
+      return c.html(
+        layout({
+          title: "Source not active",
+          content: sourceGateView({ sourceName: src.name, currentPath: c.req.path, activeNames: active.map((s) => s.name) }),
+          sources: config.sources,
+          activeSourceNames: active.map((s) => s.name),
+          demoMode: config.demoMode,
+        }),
+        404
+      );
+    }
     const doc = src && date ? readLedger(src, date) : null;
     if (!doc) {
       return c.html(

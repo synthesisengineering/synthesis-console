@@ -51,4 +51,20 @@ export function activeSourceNames(c: Context, config: ConsoleConfig): string[] {
   return activeSources(c, config).map((s) => s.name);
 }
 
+/**
+ * Whether the named source is among the request's ACTIVE sources (v1.0.1).
+ *
+ * Detail routes (`/plans/:source/:date`, `/projects/:source/:id`, …) must
+ * check this before rendering. The source picker is the view scope for the
+ * WHOLE app: deselecting a source makes its content unreachable through the
+ * UI — including direct URLs, bookmarks, breadcrumbs, and prev/next links —
+ * not just absent from the union list views. This is what makes "select
+ * only Demo" safe for screen-sharing: real-source pages gate instead of
+ * rendering. (`bun run demo` / --demo remains the hard, config-level
+ * isolation for fully unattended demos.)
+ */
+export function isSourceActive(c: Context, config: ConsoleConfig, sourceName: string): boolean {
+  return activeSources(c, config).some((s) => s.name === sourceName);
+}
+
 export { COOKIE_NAME as SOURCES_COOKIE };

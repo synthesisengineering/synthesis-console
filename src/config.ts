@@ -183,6 +183,7 @@ function normalizeSource(raw: Record<string, unknown>): Source {
       user_token_env: typeof s.user_token_env === "string" ? s.user_token_env : undefined,
       users_file: typeof s.users_file === "string" ? s.users_file : undefined,
       channels_file: typeof s.channels_file === "string" ? s.channels_file : undefined,
+      tier_a_send_enabled: s.tier_a_send_enabled === true,
     };
   }
 
@@ -194,6 +195,8 @@ function normalizeSource(raw: Record<string, unknown>): Source {
     lessons_dir: typeof raw.lessons_dir === "string" ? raw.lessons_dir : undefined,
     plans_dir: typeof raw.plans_dir === "string" ? raw.plans_dir : undefined,
     notes_dir: typeof raw.notes_dir === "string" ? raw.notes_dir : undefined,
+    preps_dir: typeof raw.preps_dir === "string" ? raw.preps_dir : undefined,
+    ledgers_dir: typeof raw.ledgers_dir === "string" ? raw.ledgers_dir : undefined,
     default_active: raw.default_active === true,
     demo: raw.demo === true,
     slack,

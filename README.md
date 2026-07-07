@@ -372,6 +372,8 @@ The skills create and maintain the files. The console renders them. Together the
 
 ## Security
 
+**Source scoping (v1.0.1+).** The source picker is the view scope for the whole app: content from deselected sources doesn't render anywhere — union lists AND source-scoped detail pages (`/plans/:source/:date`, `/projects/:source/:id`, `/prep/…`, `/ledger/…`). A direct URL or bookmark into a deselected source shows a "Source not active" page instead of the content. Selecting only the Demo source therefore makes every real source unreachable through the browser — safe for screen-sharing. For fully unattended demos, `bun run demo` remains the stronger, config-level isolation (real sources aren't even loaded).
+
 Synthesis Console is a **local-only tool** that binds to `localhost`. It reads your own files from your own filesystem.
 
 - **Path traversal:** URL parameters are sanitized to prevent directory traversal attacks
