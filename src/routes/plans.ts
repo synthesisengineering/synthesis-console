@@ -9,6 +9,7 @@ import { recordDecision, markTaskDone, unmarkTaskDone } from "../parsers/plan-mu
 import { loadProjectsFromSources } from "../parsers/yaml.js";
 import { computePortfolioLanes } from "../parsers/portfolio.js";
 import { parseBudget } from "../parsers/budget.js";
+import { listPrepPacks } from "../parsers/prep-pack.js";
 import { loadSlackDirectory } from "../parsers/slack-directory.js";
 import { resolveMentions, listResolvedMentions } from "../parsers/slack-mentions.js";
 import { postSlackMessage } from "../integrations/slack-send.js";
@@ -202,6 +203,10 @@ export function planRoutes(config: ConsoleConfig) {
 
     const budgetInfo = parseBudget(cockpitBundle.raw);
 
+    // v0.13: prep packs for this date from the source's preps_dir. Empty
+    // when the source declares no preps_dir or no packs exist for the date.
+    const prepPacks = listPrepPacks(src, date);
+
     const content = hasRecognized
       ? planCockpitView({
           date,
@@ -222,6 +227,7 @@ export function planRoutes(config: ConsoleConfig) {
           tierASendEnabled: !!src.slack?.tier_a_send_enabled,
           portfolioLanes,
           budget: budgetInfo,
+          prepPacks,
         })
       : planDetailView({
           date,

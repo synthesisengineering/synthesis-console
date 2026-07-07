@@ -20,7 +20,7 @@ Local dashboard for synthesis engineering. Renders markdown and YAML project man
 
 ### Source composition model (v0.2+)
 
-Config declares a list of **sources**. Each source is self-describing: a name, a root directory, and one optional sub-path field per content type (`projects_dir`, `lessons_dir`, `plans_dir`, `notes_dir`). A source contributes to a view iff its corresponding sub-path is declared. Composition is a union of any active subset of sources; selection persists in the `sc_sources` cookie.
+Config declares a list of **sources**. Each source is self-describing: a name, a root directory, and one optional sub-path field per content type (`projects_dir`, `lessons_dir`, `plans_dir`, `notes_dir`, `preps_dir`). A source contributes to a view iff its corresponding sub-path is declared. Composition is a union of any active subset of sources; selection persists in the `sc_sources` cookie.
 
 Full rationale: `~/workspaces/rajiv/ai-knowledge-rajiv/projects/synthesis-console-build/adr-001-symmetric-sources.md`.
 
@@ -48,7 +48,7 @@ src/
   config.ts        — Config loader, source schema, auto-detect, path helpers
   active-sources.ts — Cookie/query/default resolution of active sources per request
   utils.ts         — Shared escapeHtml, escapeAttr, sanitizePathSegment
-  routes/          — Route handlers (projects, initiatives, lessons, plans). Each unions across active sources.
+  routes/          — Route handlers (projects, initiatives, lessons, plans, people + prep). Each unions across active sources.
   parsers/         — YAML (projects + initiatives) and markdown parsing
   views/           — HTML template functions (layout has multi-select picker; initiative cards and detail views)
 public/
@@ -79,6 +79,8 @@ The `demo/` directory also serves as documentation-by-example of synthesis proje
 - `/lessons/:source/:slug` — lesson detail (source-scoped)
 - `/plans` — union (calendar picks first source per date; duplicates listed below)
 - `/plans/:source/:date` — plan detail (source-scoped)
+- `/people` — commitments view derived from the last 30 days of plans + prep packs across active sources (v0.13+)
+- `/prep/:source/:slug` — meeting-prep pack detail; slug = filename without .md from the source's `meeting-preps/` dir (v0.13+)
 
 Query params:
 - `?sources=a,b` — override cookie for this session (useful for bookmarking)

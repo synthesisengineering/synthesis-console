@@ -51,6 +51,7 @@ import {
 import type { PortfolioLaneView, TodaySlotView, BudgetBarData } from "./cards.js";
 import { parseCalendarBody } from "../../parsers/calendar.js";
 import type { CalendarEvent } from "../../parsers/calendar.js";
+import type { PrepPackEntry } from "../../parsers/prep-pack.js";
 
 const md = new MarkdownIt({ html: true, linkify: true, typographer: true });
 
@@ -77,6 +78,8 @@ export interface MainColumnOpts {
   portfolioLanes?: PortfolioLaneView[];
   /** Parsed Budget line from the plan header (v0.12+). Null when absent. */
   budget?: BudgetBarData | null;
+  /** Prep packs for this plan's date (v0.13+), from the source's preps_dir. */
+  prepPacks?: PrepPackEntry[];
 }
 
 export function renderMainColumn(opts: MainColumnOpts): string {
@@ -145,6 +148,7 @@ export function renderMainColumn(opts: MainColumnOpts): string {
       ${renderBrief(opts.sections)}
       ${renderNeedsYou(opts)}
       ${renderToday(opts)}
+      ${renderPrepPacks(opts)}
       ${renderTicker(opts.sections)}
       ${renderMustDoToday(decisions, opts)}
       ${renderDoThisWeek(opts.sections, opts)}
@@ -256,6 +260,51 @@ function renderToday(opts: MainColumnOpts): string {
     events,
     editable: opts.editable,
   });
+}
+
+/* -------------------------------------------------------------------------- */
+/* PREP PACKS — meeting one-pagers for today (v0.13+)                         */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * One card per prep pack for this plan's date, chronological. Cards come
+ * from the source's preps_dir (file listing — the ritual writes the files);
+ * the optional `## 📋 Prep packs` H2 body renders below the cards as free
+ * markdown (the ritual may put notes or links there). When neither exists,
+ * the region is omitted.
+ */
+function renderPrepPacks(opts: MainColumnOpts): string {
+  const packs = opts.prepPacks ?? [];
+  const prepSection = opts.sections.find((s) => s.kind === "prep-packs");
+  if (packs.length === 0 && !prepSection) return "";
+
+  const cards = packs
+    .map((p) => {
+      const href = `/prep/${encodeURIComponent(p.sourceName)}/${encodeURIComponent(p.slug)}`;
+      const who = p.who ? `<span class="cockpit-prep-who">${escapeHtml(p.who)}</span>` : "";
+      return `
+        <a class="cockpit-prep-card" href="${escapeAttr(href)}">
+          ${p.startTime ? `<span class="cockpit-prep-time">${escapeHtml(p.startTime)}</span>` : ""}
+          <span class="cockpit-prep-title">${escapeHtml(p.title)}</span>
+          ${who}
+        </a>
+      `;
+    })
+    .join("\n");
+
+  const sectionBody = prepSection && prepSection.rawBody.trim().length > 0
+    ? `<div class="cockpit-prep-notes rendered-markdown">${md.render(prepSection.rawBody)}</div>`
+    : "";
+
+  return `
+    <section class="cockpit-region cockpit-region-preps" data-region="prep-packs" aria-label="Meeting prep packs">
+      <h2 class="cockpit-region-title">PREP PACKS
+        <span class="cockpit-region-subtitle">${packs.length > 0 ? `${packs.length} meeting${packs.length === 1 ? "" : "s"}` : "notes"}</span>
+      </h2>
+      ${cards ? `<div class="cockpit-prep-cards">${cards}</div>` : ""}
+      ${sectionBody}
+    </section>
+  `;
 }
 
 /* -------------------------------------------------------------------------- */

@@ -52,6 +52,8 @@ export interface PlanCockpitShellOpts {
   portfolioLanes?: import("./cards.js").PortfolioLaneView[];
   /** Parsed Budget line from the plan header (v0.12+). */
   budget?: import("./cards.js").BudgetBarData | null;
+  /** Prep packs for this plan's date (v0.13+). */
+  prepPacks?: import("../../parsers/prep-pack.js").PrepPackEntry[];
 }
 
 export function planCockpitShellView(opts: PlanCockpitShellOpts): string {
@@ -92,6 +94,7 @@ export function planCockpitShellView(opts: PlanCockpitShellOpts): string {
     tierASendEnabled: opts.tierASendEnabled,
     portfolioLanes: opts.portfolioLanes,
     budget: opts.budget,
+    prepPacks: opts.prepPacks,
   });
 
   const rightSidebarHtml = renderSidebarRight({

@@ -6,6 +6,7 @@ import { projectRoutes } from "./routes/projects.js";
 import { initiativeRoutes } from "./routes/initiatives.js";
 import { lessonRoutes } from "./routes/lessons.js";
 import { planRoutes } from "./routes/plans.js";
+import { peopleRoutes } from "./routes/people.js";
 import { layout } from "./views/layout.js";
 import { activeSources } from "./active-sources.js";
 import pkg from "../package.json";
@@ -51,6 +52,7 @@ app.route("/", projectRoutes(config));
 app.route("/", initiativeRoutes(config));
 app.route("/", lessonRoutes(config));
 app.route("/", planRoutes(config));
+app.route("/", peopleRoutes(config));
 
 app.notFound((c) => {
   const active = activeSources(c, config);
