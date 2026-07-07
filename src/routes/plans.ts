@@ -7,6 +7,8 @@ import { readAndRenderPlanMarkdown, readAndRenderPlanForCockpit } from "../parse
 import { replaceDraftBody, findDraftBlocks, markDraftAsSent, markDraftAsSkipped, unmarkDraftAsSkipped } from "../parsers/draft-blocks.js";
 import { recordDecision, markTaskDone, unmarkTaskDone } from "../parsers/plan-mutations.js";
 import { loadProjectsFromSources } from "../parsers/yaml.js";
+import { computePortfolioLanes } from "../parsers/portfolio.js";
+import { parseBudget } from "../parsers/budget.js";
 import { loadSlackDirectory } from "../parsers/slack-directory.js";
 import { resolveMentions, listResolvedMentions } from "../parsers/slack-mentions.js";
 import { postSlackMessage } from "../integrations/slack-send.js";
@@ -183,6 +185,23 @@ export function planRoutes(config: ConsoleConfig) {
     const projects = loadProjectsFromSources([src]);
     const calendarPlans = allPlans.filter((p) => withinDays(p.date, date, 60));
 
+    // v0.12: portfolio lanes aggregate across ACTIVE sources (the CPTO-era
+    // "one cockpit, many lanes" surface) — not just the plan's own source.
+    // Health is file-derived per parsers/portfolio.ts. Demo isolation: when
+    // viewing a demo plan, only demo sources feed the strip, and demo
+    // sources never feed a real plan's strip.
+    const laneSources = active.filter((s) => !!s.demo === !!src.demo);
+    const portfolioLanes = computePortfolioLanes(laneSources).map((lane) => ({
+      sourceName: lane.initiative._source,
+      initiativeId: lane.initiative.id,
+      initiativeName: lane.initiative.name,
+      health: lane.health,
+      memberCount: lane.memberCount,
+      tooltip: lane.healthSignals.join("\n"),
+    }));
+
+    const budgetInfo = parseBudget(cockpitBundle.raw);
+
     const content = hasRecognized
       ? planCockpitView({
           date,
@@ -201,6 +220,8 @@ export function planRoutes(config: ConsoleConfig) {
           drafts: cockpitBundle.drafts,
           slackConfigured: slackEnabled,
           tierASendEnabled: !!src.slack?.tier_a_send_enabled,
+          portfolioLanes,
+          budget: budgetInfo,
         })
       : planDetailView({
           date,

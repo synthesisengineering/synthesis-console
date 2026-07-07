@@ -88,6 +88,13 @@ The parser walks the markdown's H2 headings and classifies each (case-insensitiv
 
 Drafts inside `decision-needed` or `one-tap-batch` H2s render **only** in NEEDS YOU — the standard `## Drafts` region excludes them so nothing double-renders. Drafts under any other H2 (including the legacy `## Drafts — Ready to Send`) continue to render in the standard DRAFTS region.
 
+**Cockpit Mode (v0.12+) — TODAY + the portfolio lane strip.**
+
+- `## 📅 Calendar` (`calendar`) holds the day's events, one list line per event: `- HH:MM–HH:MM · title · attendees`. The RITUAL writes this section from the user's calendar at plan-generation time and refreshes it in mid-day sweeps — the console never reads a calendar directly (file-based bridge; see synthesis-daily-rituals v2.11.0). Unparseable lines render as plain markdown.
+- `## 🎯 Today — N deep items` (`today`) holds the Tier-C slots, one H3 per slot. A slot H3 that names its window (`### Deep 1 — board memo (window 09:30–11:00)`) gets a window chip; when a calendar event overlaps that window (and isn't the identical range), the slot shows a ⚡ preemption flag — visualized, not mourned.
+- The `**Budget:**` header line (`Budget: Windows HH:MM–HH:MM · … = N min. Committed: M min (P%). Buffer: B min.`) renders as a budget bar at the top of TODAY. Committed above 70% draws the bar in the warning color with an explicit note.
+- The **portfolio lane strip** renders above everything else in the main column: one chip per active initiative across ALL active sources, worst health first, linking to the initiative detail page. Health is file-derived — explicit `🔴` / `⚠️` / `✅` markers in the first 40 lines of member projects' CONTEXT.md files win; staleness of `last_session` (>7 days) contributes at most a *warning*. Only an explicit 🔴 produces critical: inference prompts a check-in, assertion raises an alarm. There is no UI to set health by hand — lanes are ritual-generated or they rot.
+
 If you write a plan with section names not in this table, those sections still display — they just live in the catch-all "Other" collapsible at the bottom. They are never hidden or dropped.
 
 ### H3 buckets inside Priority Tasks

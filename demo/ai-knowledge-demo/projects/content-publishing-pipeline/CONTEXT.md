@@ -1,6 +1,6 @@
 # Content Publishing Pipeline — Working Context
 
-**Status:** Active
+**Status:** Active — ⚠️ canonical-URL rollout waiting on DNS change
 **Last session:** 2026-04-08
 
 ---

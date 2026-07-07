@@ -519,6 +519,207 @@ export function renderTickerRegion(rawBody: string, openByDefault = false): stri
 }
 
 /* -------------------------------------------------------------------------- */
+/* v0.12 — Portfolio lane strip                                               */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Horizontal strip of initiative lanes at the very top of the main column.
+ * One chip per active initiative across ALL active sources — this is the
+ * CPTO-era "one cockpit, many lanes" surface. Each chip: health dot +
+ * initiative name + member count, linking to the initiative detail page.
+ *
+ * Health is file-derived (CONTEXT.md markers with staleness fallback —
+ * see parsers/portfolio.ts). There is deliberately no way to set health
+ * from this UI: hand-curated lanes rot; ritual-generated lanes stay true.
+ */
+export interface PortfolioLaneView {
+  sourceName: string;
+  initiativeId: string;
+  initiativeName: string;
+  health: "critical" | "warning" | "healthy" | "unknown";
+  memberCount: number;
+  tooltip: string;
+}
+
+export function renderPortfolioStrip(lanes: PortfolioLaneView[]): string {
+  if (lanes.length === 0) return "";
+  // Worst lanes first so 🔴 is never below the fold of the strip.
+  const order = { critical: 0, warning: 1, healthy: 2, unknown: 3 } as const;
+  const sorted = [...lanes].sort((a, b) => order[a.health] - order[b.health]);
+  const chips = sorted
+    .map((lane) => {
+      const href = `/initiatives/${encodeURIComponent(lane.sourceName)}/${encodeURIComponent(lane.initiativeId)}`;
+      const title = lane.tooltip ? ` title="${escapeAttr(lane.tooltip)}"` : "";
+      return `
+        <a class="cockpit-lane cockpit-lane-${lane.health}" href="${escapeAttr(href)}"${title}>
+          <span class="cockpit-lane-dot" aria-hidden="true"></span>
+          <span class="cockpit-lane-name">${escapeHtml(lane.initiativeName)}</span>
+          <span class="cockpit-lane-count">${lane.memberCount}</span>
+        </a>
+      `;
+    })
+    .join("\n");
+  return `
+    <nav class="cockpit-region cockpit-region-portfolio" data-region="portfolio" aria-label="Portfolio lanes">
+      <div class="cockpit-lane-strip">${chips}</div>
+    </nav>
+  `;
+}
+
+/* -------------------------------------------------------------------------- */
+/* v0.12 — TODAY region (budget bar + Tier-C slots + calendar)                */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Budget bar: one horizontal track showing committed vs buffer minutes
+ * within the day's discretionary total. The arithmetic line renders the
+ * exact numbers so the bar is a glance aid, not the only source.
+ */
+export interface BudgetBarData {
+  totalMinutes: number;
+  committedMinutes: number;
+  bufferMinutes: number;
+  committedPercent: number;
+}
+
+export function renderBudgetBar(b: BudgetBarData): string {
+  if (b.totalMinutes <= 0) return "";
+  const committedPct = Math.min(100, Math.round((b.committedMinutes / b.totalMinutes) * 100));
+  const overCommitted = b.committedPercent > 70;
+  return `
+    <div class="cockpit-budget" role="img" aria-label="Time budget: ${b.committedMinutes} of ${b.totalMinutes} minutes committed, ${b.bufferMinutes} minutes buffer">
+      <div class="cockpit-budget-track">
+        <div class="cockpit-budget-committed${overCommitted ? " cockpit-budget-over" : ""}" style="--pct:${committedPct}"></div>
+      </div>
+      <div class="cockpit-budget-label">
+        <span><strong>${b.committedMinutes}</strong> min committed (${b.committedPercent}%)</span>
+        <span class="cockpit-budget-buffer"><strong>${b.bufferMinutes}</strong> min buffer</span>
+        <span class="cockpit-budget-total">${b.totalMinutes} min total</span>
+      </div>
+      ${overCommitted ? `<p class="cockpit-budget-warning">Committed above the 70% guideline — preemption will cost a slot.</p>` : ""}
+    </div>
+  `;
+}
+
+/**
+ * One calendar event row inside the TODAY region.
+ */
+export interface CalendarEventView {
+  start?: string;
+  end?: string;
+  title?: string;
+  attendees?: string;
+  rawLine: string;
+}
+
+export function renderCalendarEvent(ev: CalendarEventView): string {
+  if (ev.start && ev.end) {
+    const attendees = ev.attendees
+      ? `<span class="cockpit-cal-attendees">${escapeHtml(ev.attendees)}</span>`
+      : "";
+    return `
+      <li class="cockpit-cal-event">
+        <span class="cockpit-cal-time">${escapeHtml(ev.start)}–${escapeHtml(ev.end)}</span>
+        <span class="cockpit-cal-title">${escapeHtml(ev.title || "")}</span>
+        ${attendees}
+      </li>
+    `;
+  }
+  return `<li class="cockpit-cal-event cockpit-cal-event-raw">${md.renderInline(ev.rawLine.replace(/^\s*[-*+]\s+/, ""))}</li>`;
+}
+
+/**
+ * A Tier-C slot card. The slot's window binding is parsed from the H3
+ * label (e.g. "Deep 1 — CPTO board memo (window 09:30–11:00)"). When a
+ * calendar event overlaps the window, the card gets a preemption badge —
+ * visualized, not mourned, per working-system-v3 §2.2.
+ */
+export interface TodaySlotView {
+  bucket: TaskBucket;
+  window?: { start: string; end: string };
+  overlapTitle?: string;
+}
+
+const SLOT_WINDOW_RE = /(\d{1,2}:\d{2})\s*[–\-—]\s*(\d{1,2}:\d{2})/;
+
+export function extractSlotWindow(label: string): { start: string; end: string } | undefined {
+  const m = label.match(SLOT_WINDOW_RE);
+  return m ? { start: m[1], end: m[2] } : undefined;
+}
+
+function toMinutes(hhmm: string): number {
+  const [h, m] = hhmm.split(":").map(Number);
+  return h * 60 + m;
+}
+
+export function windowsOverlap(
+  a: { start: string; end: string },
+  b: { start: string; end: string }
+): boolean {
+  return toMinutes(a.start) < toMinutes(b.end) && toMinutes(b.start) < toMinutes(a.end);
+}
+
+export function renderTodaySlot(slot: TodaySlotView, opts: TaskBucketOpts): string {
+  const windowChip = slot.window
+    ? `<span class="cockpit-slot-window">${escapeHtml(slot.window.start)}–${escapeHtml(slot.window.end)}</span>`
+    : "";
+  const preemption = slot.overlapTitle
+    ? `<span class="cockpit-slot-preempted" title="A calendar event overlaps this window">⚡ ${escapeHtml(slot.overlapTitle)}</span>`
+    : "";
+  const tasksHtml = slot.bucket.tasks.map((t) => renderTask(t, { editable: opts.editable })).join("\n");
+  const doneCount = slot.bucket.tasks.filter((t) => t.done).length;
+  return `
+    <article class="cockpit-slot${slot.overlapTitle ? " cockpit-slot-has-overlap" : ""}" data-bucket-index="${slot.bucket.index}">
+      <header class="cockpit-slot-header">
+        <span class="cockpit-slot-label">${escapeHtml(slot.bucket.label || "Deep work")}</span>
+        ${windowChip}
+        ${preemption}
+        <span class="cockpit-slot-count">${doneCount} / ${slot.bucket.tasks.length}</span>
+      </header>
+      <ol class="cockpit-task-list">${tasksHtml}</ol>
+    </article>
+  `;
+}
+
+/**
+ * TODAY region wrapper: budget bar + Tier-C slot cards + compact calendar.
+ * Renders nothing when the plan has neither a `today` section, a Budget
+ * line, nor a `calendar` section (legacy plans unchanged).
+ */
+export function renderTodayRegion(opts: {
+  budget: BudgetBarData | null;
+  slots: TodaySlotView[];
+  events: CalendarEventView[];
+  editable: boolean;
+}): string {
+  const hasContent = !!opts.budget || opts.slots.length > 0 || opts.events.length > 0;
+  if (!hasContent) return "";
+
+  const slotsHtml = opts.slots
+    .map((s) => renderTodaySlot(s, { defaultOpen: true, editable: opts.editable }))
+    .join("\n");
+  const calendarHtml = opts.events.length > 0
+    ? `
+      <details class="cockpit-cal-details">
+        <summary class="cockpit-cal-summary">Calendar — ${opts.events.length} event${opts.events.length === 1 ? "" : "s"}</summary>
+        <ul class="cockpit-cal-list">${opts.events.map(renderCalendarEvent).join("\n")}</ul>
+      </details>
+    `
+    : "";
+
+  return `
+    <section class="cockpit-region cockpit-region-today-slots" data-region="today" aria-label="Today's deep work">
+      <h2 class="cockpit-region-title">TODAY
+        <span class="cockpit-region-subtitle">${opts.slots.length > 0 ? `${opts.slots.length} deep slot${opts.slots.length === 1 ? "" : "s"}` : "budget"}</span>
+      </h2>
+      ${opts.budget ? renderBudgetBar(opts.budget) : ""}
+      ${calendarHtml}
+      ${slotsHtml}
+    </section>
+  `;
+}
+
+/* -------------------------------------------------------------------------- */
 /* v0.11 — BRIEF region ("Brief")                                             */
 /* -------------------------------------------------------------------------- */
 

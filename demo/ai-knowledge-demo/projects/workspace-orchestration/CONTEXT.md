@@ -1,6 +1,6 @@
 # Workspace Orchestration — Working Context
 
-**Status:** Ongoing
+**Status:** Ongoing — 🔴 nightly sync job failing since Apr 10, needs attention
 **Last session:** 2026-04-11
 
 ---

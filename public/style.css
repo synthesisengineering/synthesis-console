@@ -2835,6 +2835,205 @@ body[data-cockpit-focus="true"] .cockpit-shell .cockpit-header {
 }
 
 /* ============================================================
+   v0.12 — Cockpit Mode: Portfolio lane strip + TODAY region
+   ============================================================ */
+
+/* Portfolio lane strip — horizontal chip rail at the very top of the
+   main column. Worst-health lanes sort first. Chips link to the
+   initiative detail page. */
+.cockpit-region-portfolio {
+  margin-bottom: 0.9em;
+}
+.cockpit-lane-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4em;
+}
+.cockpit-lane {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4em;
+  padding: 0.25em 0.65em;
+  border: 1px solid var(--muted-border-color, #ddd);
+  border-radius: 999px;
+  font-size: 0.85em;
+  text-decoration: none;
+  color: var(--color, #222);
+  background: var(--card-background-color, #fff);
+  transition: border-color 100ms ease, background 100ms ease;
+  max-width: 100%;
+}
+.cockpit-lane:hover {
+  background: var(--cockpit-card-hover, rgba(0, 0, 0, 0.04));
+  text-decoration: none;
+}
+.cockpit-lane-dot {
+  width: 0.55em;
+  height: 0.55em;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.cockpit-lane-critical .cockpit-lane-dot { background: var(--cockpit-critical, #d33); }
+.cockpit-lane-critical { border-color: var(--cockpit-critical, #d33); }
+.cockpit-lane-warning .cockpit-lane-dot { background: var(--cockpit-warning, #d4a017); }
+.cockpit-lane-healthy .cockpit-lane-dot { background: var(--cockpit-done, #2da44e); }
+.cockpit-lane-unknown .cockpit-lane-dot { background: var(--muted-color, #999); }
+.cockpit-lane-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cockpit-lane-count {
+  font-size: 0.85em;
+  color: var(--muted-color, #666);
+  flex-shrink: 0;
+}
+
+/* TODAY region — budget bar + calendar disclosure + Tier-C slot cards */
+.cockpit-region-today-slots {
+  border-left: 3px solid var(--cockpit-action, #0969da);
+  padding: 0.6em 0.9em 0.8em;
+  background: var(--cockpit-body-bg, rgba(0, 0, 0, 0.02));
+  border-radius: 4px;
+  margin-bottom: 1em;
+}
+.cockpit-region-today-slots .cockpit-region-title {
+  font-size: 0.95em;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--cockpit-action, #0969da);
+  margin: 0 0 0.5em;
+  display: flex;
+  align-items: baseline;
+  gap: 0.6em;
+}
+.cockpit-region-today-slots .cockpit-region-subtitle {
+  font-size: 0.78em;
+  font-weight: normal;
+  color: var(--muted-color, #888);
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+/* Budget bar */
+.cockpit-budget { margin-bottom: 0.7em; }
+.cockpit-budget-track {
+  height: 0.6em;
+  border-radius: 999px;
+  background: var(--cockpit-budget-track, rgba(0, 0, 0, 0.08));
+  overflow: hidden;
+}
+.cockpit-budget-committed {
+  height: 100%;
+  width: calc(var(--pct) * 1%);
+  background: var(--cockpit-action, #0969da);
+  border-radius: 999px;
+  transition: width 200ms ease;
+}
+.cockpit-budget-committed.cockpit-budget-over {
+  background: var(--cockpit-warning, #d4a017);
+}
+.cockpit-budget-label {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.9em;
+  font-size: 0.85em;
+  color: var(--muted-color, #666);
+  margin-top: 0.3em;
+}
+.cockpit-budget-warning {
+  font-size: 0.82em;
+  color: var(--cockpit-warning, #b8860b);
+  margin: 0.3em 0 0;
+}
+
+/* Calendar disclosure inside TODAY */
+.cockpit-cal-details {
+  margin-bottom: 0.7em;
+}
+.cockpit-cal-summary {
+  cursor: pointer;
+  font-size: 0.88em;
+  color: var(--muted-color, #666);
+  list-style: none;
+  padding: 0.15em 0;
+}
+.cockpit-cal-summary::-webkit-details-marker { display: none; }
+.cockpit-cal-summary::before {
+  content: "▸ ";
+  display: inline-block;
+  transition: transform 120ms ease;
+}
+.cockpit-cal-details[open] .cockpit-cal-summary::before { transform: rotate(90deg); }
+.cockpit-cal-list {
+  list-style: none;
+  padding: 0;
+  margin: 0.4em 0 0;
+}
+.cockpit-cal-event {
+  display: flex;
+  gap: 0.7em;
+  align-items: baseline;
+  padding: 0.2em 0;
+  font-size: 0.9em;
+  border-bottom: 1px solid var(--muted-border-color, #eee);
+}
+.cockpit-cal-event:last-child { border-bottom: none; }
+.cockpit-cal-time {
+  font-family: var(--font-monospace, ui-monospace, monospace);
+  font-size: 0.88em;
+  color: var(--muted-color, #666);
+  flex-shrink: 0;
+}
+.cockpit-cal-title { overflow-wrap: anywhere; }
+.cockpit-cal-attendees {
+  font-size: 0.85em;
+  color: var(--muted-color, #888);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Tier-C slot cards */
+.cockpit-slot {
+  border: 1px solid var(--muted-border-color, #ddd);
+  border-left: 3px solid var(--cockpit-action, #0969da);
+  border-radius: 4px;
+  background: var(--card-background-color, #fff);
+  padding: 0.5em 0.7em;
+  margin-bottom: 0.5em;
+}
+.cockpit-slot:last-child { margin-bottom: 0; }
+.cockpit-slot-has-overlap {
+  border-left-color: var(--cockpit-warning, #d4a017);
+}
+.cockpit-slot-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.55em;
+  margin-bottom: 0.3em;
+}
+.cockpit-slot-label { font-weight: 600; }
+.cockpit-slot-window {
+  font-family: var(--font-monospace, ui-monospace, monospace);
+  font-size: 0.82em;
+  padding: 0.05em 0.45em;
+  border: 1px solid var(--muted-border-color, #ccc);
+  border-radius: 3px;
+  color: var(--muted-color, #666);
+}
+.cockpit-slot-preempted {
+  font-size: 0.82em;
+  color: var(--cockpit-warning, #b8860b);
+}
+.cockpit-slot-count {
+  margin-left: auto;
+  font-size: 0.82em;
+  color: var(--muted-color, #666);
+}
+
+/* ============================================================
    v0.11 — Cockpit Mode: BRIEF region
    ============================================================ */
 

@@ -41,9 +41,16 @@ import {
   renderNeedsYouRegion,
   renderTickerRegion,
   renderBriefRegion,
+  renderPortfolioStrip,
+  renderTodayRegion,
+  extractSlotWindow,
+  windowsOverlap,
   countDrafts,
   countSentToday,
 } from "./cards.js";
+import type { PortfolioLaneView, TodaySlotView, BudgetBarData } from "./cards.js";
+import { parseCalendarBody } from "../../parsers/calendar.js";
+import type { CalendarEvent } from "../../parsers/calendar.js";
 
 const md = new MarkdownIt({ html: true, linkify: true, typographer: true });
 
@@ -66,6 +73,10 @@ export interface MainColumnOpts {
   slackConfigured?: boolean;
   /** Whether Tier-A auto-send is enabled for this source (v0.10+). */
   tierASendEnabled?: boolean;
+  /** Portfolio lanes across all active sources (v0.12+). */
+  portfolioLanes?: PortfolioLaneView[];
+  /** Parsed Budget line from the plan header (v0.12+). Null when absent. */
+  budget?: BudgetBarData | null;
 }
 
 export function renderMainColumn(opts: MainColumnOpts): string {
@@ -127,10 +138,13 @@ export function renderMainColumn(opts: MainColumnOpts): string {
         </div>
       </header>
 
+      ${opts.portfolioLanes && opts.portfolioLanes.length > 0 ? renderPortfolioStrip(opts.portfolioLanes) : ""}
+
       ${headerHtml ? `<div class="cockpit-header rendered-markdown">${headerHtml}</div>` : ""}
 
       ${renderBrief(opts.sections)}
       ${renderNeedsYou(opts)}
+      ${renderToday(opts)}
       ${renderTicker(opts.sections)}
       ${renderMustDoToday(decisions, opts)}
       ${renderDoThisWeek(opts.sections, opts)}
@@ -194,6 +208,54 @@ function renderTicker(sections: PlanSection[]): string {
   const tickerSection = sections.find((s) => s.kind === "ticker");
   if (!tickerSection) return "";
   return renderTickerRegion(tickerSection.rawBody, false);
+}
+
+/* -------------------------------------------------------------------------- */
+/* TODAY — budget bar + Tier-C slots + calendar (v0.12+)                      */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Composes the TODAY region from three independent signals:
+ *   - `budget` (parsed from the `**Budget:**` header line, threaded from
+ *     the route),
+ *   - the `today` section's task buckets (each H3 = one Tier-C slot;
+ *     window binding parsed from the H3 label),
+ *   - the `calendar` section's events (ritual-written `## 📅 Calendar`).
+ *
+ * A slot whose window overlaps a calendar event gets a preemption badge.
+ * Events that ARE the slot (identical window) don't badge — the common
+ * case there is the ritual writing the slot binding from the calendar
+ * block itself.
+ */
+function renderToday(opts: MainColumnOpts): string {
+  const todaySection = opts.sections.find((s) => s.kind === "today");
+  const calendarSection = opts.sections.find((s) => s.kind === "calendar");
+  const events: CalendarEvent[] = calendarSection ? parseCalendarBody(calendarSection.rawBody) : [];
+
+  const slots: TodaySlotView[] = [];
+  for (const bucket of todaySection?.taskBuckets || []) {
+    const window = extractSlotWindow(bucket.label);
+    let overlapTitle: string | undefined;
+    if (window) {
+      for (const ev of events) {
+        if (!ev.start || !ev.end) continue;
+        const evWindow = { start: ev.start, end: ev.end };
+        const identical = evWindow.start === window.start && evWindow.end === window.end;
+        if (!identical && windowsOverlap(window, evWindow)) {
+          overlapTitle = ev.title || "calendar event";
+          break;
+        }
+      }
+    }
+    slots.push({ bucket, window, overlapTitle });
+  }
+
+  return renderTodayRegion({
+    budget: opts.budget ?? null,
+    slots,
+    events,
+    editable: opts.editable,
+  });
 }
 
 /* -------------------------------------------------------------------------- */

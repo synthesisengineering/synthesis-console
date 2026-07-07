@@ -48,6 +48,10 @@ export interface PlanCockpitShellOpts {
   slackConfigured?: boolean;
   /** Whether Tier-A auto-send is enabled for this source (v0.10+). */
   tierASendEnabled?: boolean;
+  /** Portfolio lanes across all active sources (v0.12+). */
+  portfolioLanes?: import("./cards.js").PortfolioLaneView[];
+  /** Parsed Budget line from the plan header (v0.12+). */
+  budget?: import("./cards.js").BudgetBarData | null;
 }
 
 export function planCockpitShellView(opts: PlanCockpitShellOpts): string {
@@ -86,6 +90,8 @@ export function planCockpitShellView(opts: PlanCockpitShellOpts): string {
     drafts: opts.drafts,
     slackConfigured: opts.slackConfigured,
     tierASendEnabled: opts.tierASendEnabled,
+    portfolioLanes: opts.portfolioLanes,
+    budget: opts.budget,
   });
 
   const rightSidebarHtml = renderSidebarRight({

@@ -1,6 +1,6 @@
 # Synthesis Skills Ecosystem — Working Context
 
-**Status:** Active
+**Status:** Active — ✅ v2 install flow verified on both machines
 **Last session:** 2026-04-11
 
 ---
