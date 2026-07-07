@@ -10,6 +10,7 @@ import { loadProjectsFromSources } from "../parsers/yaml.js";
 import { computePortfolioLanes } from "../parsers/portfolio.js";
 import { parseBudget } from "../parsers/budget.js";
 import { listPrepPacks } from "../parsers/prep-pack.js";
+import { listLedgers, readLedger } from "../parsers/ledger.js";
 import { loadSlackDirectory } from "../parsers/slack-directory.js";
 import { resolveMentions, listResolvedMentions } from "../parsers/slack-mentions.js";
 import { postSlackMessage } from "../integrations/slack-send.js";
@@ -207,6 +208,21 @@ export function planRoutes(config: ConsoleConfig) {
     // when the source declares no preps_dir or no packs exist for the date.
     const prepPacks = listPrepPacks(src, date);
 
+    // v0.14: latest ledger digest for the sidebar. Plans and ledgers are
+    // both person-scoped, so the plan's own source is the right scope.
+    const newestLedgerEntry = listLedgers(src)[0];
+    const newestLedger = newestLedgerEntry ? readLedger(src, newestLedgerEntry.date) : null;
+    const latestLedger = newestLedger
+      ? {
+          date: newestLedger.date,
+          openTotal:
+            newestLedger.openCounts.actionable +
+            newestLedger.openCounts.decaying +
+            newestLedger.openCounts.delegated,
+          decaying: newestLedger.openCounts.decaying,
+        }
+      : undefined;
+
     const content = hasRecognized
       ? planCockpitView({
           date,
@@ -228,6 +244,7 @@ export function planRoutes(config: ConsoleConfig) {
           portfolioLanes,
           budget: budgetInfo,
           prepPacks,
+          latestLedger,
         })
       : planDetailView({
           date,

@@ -54,6 +54,8 @@ export interface PlanCockpitShellOpts {
   budget?: import("./cards.js").BudgetBarData | null;
   /** Prep packs for this plan's date (v0.13+). */
   prepPacks?: import("../../parsers/prep-pack.js").PrepPackEntry[];
+  /** Latest ledger digest for the left sidebar (v0.14+). */
+  latestLedger?: { date: string; openTotal: number; decaying: number };
 }
 
 export function planCockpitShellView(opts: PlanCockpitShellOpts): string {
@@ -77,6 +79,7 @@ export function planCockpitShellView(opts: PlanCockpitShellOpts): string {
     projects,
     plansForCalendar,
     currentDate: opts.date,
+    latestLedger: opts.latestLedger,
   });
 
   const mainColumnHtml = renderMainColumn({

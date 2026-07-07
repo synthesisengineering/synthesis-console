@@ -20,7 +20,7 @@ Local dashboard for synthesis engineering. Renders markdown and YAML project man
 
 ### Source composition model (v0.2+)
 
-Config declares a list of **sources**. Each source is self-describing: a name, a root directory, and one optional sub-path field per content type (`projects_dir`, `lessons_dir`, `plans_dir`, `notes_dir`, `preps_dir`). A source contributes to a view iff its corresponding sub-path is declared. Composition is a union of any active subset of sources; selection persists in the `sc_sources` cookie.
+Config declares a list of **sources**. Each source is self-describing: a name, a root directory, and one optional sub-path field per content type (`projects_dir`, `lessons_dir`, `plans_dir`, `notes_dir`, `preps_dir`, `ledgers_dir`). A source contributes to a view iff its corresponding sub-path is declared. Composition is a union of any active subset of sources; selection persists in the `sc_sources` cookie.
 
 Full rationale: `~/workspaces/rajiv/ai-knowledge-rajiv/projects/synthesis-console-build/adr-001-symmetric-sources.md`.
 
@@ -81,6 +81,7 @@ The `demo/` directory also serves as documentation-by-example of synthesis proje
 - `/plans/:source/:date` — plan detail (source-scoped)
 - `/people` — commitments view derived from the last 30 days of plans + prep packs across active sources (v0.13+)
 - `/prep/:source/:slug` — meeting-prep pack detail; slug = filename without .md from the source's `meeting-preps/` dir (v0.13+)
+- `/ledger` — newest catch-up ledger across active sources; `/ledger/:source/:date` for a specific sweep (v0.14+)
 
 Query params:
 - `?sources=a,b` — override cookie for this session (useful for bookmarking)

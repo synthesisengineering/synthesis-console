@@ -41,6 +41,8 @@ export interface Source {
   notes_dir?: string;
   /** Relative path to meeting-prep packs dir (v0.13+) — contributes /prep/:source/:slug pages. */
   preps_dir?: string;
+  /** Relative path to catch-up ledgers dir (v0.14+) — contributes the /ledger view. */
+  ledgers_dir?: string;
   default_active?: boolean;
   demo?: boolean;
   slack?: SlackConfig;
@@ -73,8 +75,8 @@ function hasProjectsIndex(p: string): boolean {
   return existsSync(join(p, "index.yaml"));
 }
 
-function detectContentDirs(root: string): Pick<Source, "projects_dir" | "lessons_dir" | "plans_dir" | "notes_dir" | "preps_dir"> {
-  const out: Pick<Source, "projects_dir" | "lessons_dir" | "plans_dir" | "notes_dir" | "preps_dir"> = {};
+function detectContentDirs(root: string): Pick<Source, "projects_dir" | "lessons_dir" | "plans_dir" | "notes_dir" | "preps_dir" | "ledgers_dir"> {
+  const out: Pick<Source, "projects_dir" | "lessons_dir" | "plans_dir" | "notes_dir" | "preps_dir" | "ledgers_dir"> = {};
 
   // New layout (preferred): top-level lessons/, daily-plans/
   if (isDirectory(join(root, "projects")) && hasProjectsIndex(join(root, "projects"))) {
@@ -84,6 +86,7 @@ function detectContentDirs(root: string): Pick<Source, "projects_dir" | "lessons
   if (isDirectory(join(root, "daily-plans"))) out.plans_dir = "daily-plans";
   if (isDirectory(join(root, "notes"))) out.notes_dir = "notes";
   if (isDirectory(join(root, "meeting-preps"))) out.preps_dir = "meeting-preps";
+  if (isDirectory(join(root, "catchup-ledgers"))) out.ledgers_dir = "catchup-ledgers";
 
   // Legacy layout fallback: projects/_lessons, projects/_daily-plans
   if (!out.lessons_dir && isDirectory(join(root, "projects", "_lessons"))) {
@@ -146,6 +149,7 @@ function getBuiltInDemoSource(): Source {
     lessons_dir: "lessons",
     plans_dir: "daily-plans",
     preps_dir: "meeting-preps",
+    ledgers_dir: "catchup-ledgers",
     demo: true,
     default_active: false,
     slack: {
@@ -334,6 +338,10 @@ export function getNotesPath(src: Source): string | null {
 
 export function getPrepsPath(src: Source): string | null {
   return src.preps_dir ? join(src.root, src.preps_dir) : null;
+}
+
+export function getLedgersPath(src: Source): string | null {
+  return src.ledgers_dir ? join(src.root, src.ledgers_dir) : null;
 }
 
 export function findSource(sources: Source[], name: string): Source | undefined {

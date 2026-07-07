@@ -76,6 +76,7 @@ function buildNav(currentPath: string): string {
     { href: "/projects", label: "Projects", match: "/projects" },
     { href: "/plans", label: "Plans", match: "/plans" },
     { href: "/people", label: "People", match: "/people" },
+    { href: "/ledger", label: "Ledger", match: "/ledger" },
     { href: "/lessons", label: "Lessons", match: "/lessons" },
   ];
 

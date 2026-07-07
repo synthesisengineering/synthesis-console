@@ -2835,6 +2835,102 @@ body[data-cockpit-focus="true"] .cockpit-shell .cockpit-header {
 }
 
 /* ============================================================
+   v0.14 — Catch-up ledger view
+   ============================================================ */
+
+.ledger-header {
+  padding: 0.6em 0.9em;
+  background: var(--cockpit-body-bg, rgba(0,0,0,0.02));
+  border-left: 3px solid var(--cockpit-context, #6b7280);
+  border-radius: 4px;
+  font-size: 0.92em;
+  margin-bottom: 1em;
+}
+.ledger-header p:last-child { margin-bottom: 0; }
+
+.ledger-section {
+  border: 1px solid var(--muted-border-color, #ddd);
+  border-radius: 6px;
+  margin-bottom: 0.7em;
+  padding: 0.5em 0.8em;
+  background: var(--card-background-color, #fff);
+}
+.ledger-section-summary {
+  cursor: pointer;
+  font-weight: 600;
+  list-style: none;
+  padding: 0.2em 0;
+}
+.ledger-section-summary::-webkit-details-marker { display: none; }
+.ledger-section-summary::before {
+  content: "▸ ";
+  display: inline-block;
+  transition: transform 120ms ease;
+}
+.ledger-section[open] .ledger-section-summary::before { transform: rotate(90deg); }
+.ledger-section-count {
+  display: inline-block;
+  min-width: 1.5em;
+  text-align: center;
+  padding: 0 0.35em;
+  margin-left: 0.4em;
+  border-radius: 999px;
+  background: var(--cockpit-body-bg, rgba(0,0,0,0.06));
+  font-size: 0.85em;
+  font-weight: normal;
+}
+.ledger-section-actionable { border-left: 3px solid var(--cockpit-action, #0969da); }
+.ledger-section-decaying { border-left: 3px solid var(--cockpit-warning, #d4a017); }
+.ledger-section-delegated { border-left: 3px solid var(--cockpit-context, #6b7280); }
+.ledger-section-done-late { border-left: 3px solid var(--cockpit-done, #2da44e); }
+.ledger-section-expired { border-left: 3px solid var(--muted-color, #999); }
+.ledger-section-released { border-left: 3px solid var(--muted-border-color, #ccc); }
+
+.ledger-section-body { margin-top: 0.5em; }
+.ledger-table-wrap { overflow-x: auto; }
+.ledger-table { font-size: 0.9em; margin-bottom: 0.5em; }
+.ledger-table td, .ledger-table th { padding: 0.35em 0.5em; vertical-align: top; }
+.ledger-row-decaying { background: var(--ledger-decaying-bg, rgba(212, 160, 23, 0.06)); }
+.ledger-row-chips { white-space: nowrap; }
+
+.ledger-chip {
+  display: inline-block;
+  padding: 0.05em 0.5em;
+  border-radius: 999px;
+  font-size: 0.78em;
+  font-weight: 600;
+  margin-left: 0.25em;
+  white-space: nowrap;
+}
+.ledger-chip-actionable { background: rgba(9, 105, 218, 0.12); color: var(--cockpit-action, #0969da); }
+.ledger-chip-decaying { background: rgba(212, 160, 23, 0.15); color: #8a6d0b; }
+.ledger-chip-delegated { background: rgba(107, 114, 128, 0.12); color: var(--cockpit-context, #4b5563); }
+.ledger-chip-done-late { background: rgba(45, 164, 78, 0.12); color: var(--cockpit-done, #2da44e); }
+.ledger-chip-expired { background: rgba(120, 120, 120, 0.12); color: var(--muted-color, #666); }
+.ledger-chip-released { background: rgba(120, 120, 120, 0.08); color: var(--muted-color, #888); }
+.ledger-chip-kudos { background: rgba(219, 97, 162, 0.12); color: #b0347c; }
+
+.ledger-prose { font-size: 0.92em; }
+.ledger-history { font-size: 0.9em; color: var(--muted-color, #666); margin-top: 1em; }
+
+/* Left-sidebar ledger digest */
+.cockpit-ledger-digest {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5em;
+  padding: 0.3em 0.5em;
+  border: 1px solid var(--muted-border-color, #ddd);
+  border-radius: 4px;
+  text-decoration: none;
+  color: var(--color, #222);
+  font-size: 0.85em;
+}
+.cockpit-ledger-digest:hover { background: var(--cockpit-card-hover, rgba(0,0,0,0.04)); text-decoration: none; }
+.cockpit-ledger-date { font-family: var(--font-monospace, ui-monospace, monospace); color: var(--muted-color, #666); }
+.cockpit-ledger-open { font-weight: 600; }
+.cockpit-ledger-decaying { color: #8a6d0b; font-weight: 600; }
+
+/* ============================================================
    v0.13 — People view + meeting-prep packs
    ============================================================ */
 
