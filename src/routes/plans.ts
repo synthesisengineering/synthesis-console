@@ -14,6 +14,7 @@ import { listLedgers, readLedger } from "../parsers/ledger.js";
 import { loadSlackDirectory } from "../parsers/slack-directory.js";
 import { resolveMentions, listResolvedMentions } from "../parsers/slack-mentions.js";
 import { postSlackMessage } from "../integrations/slack-send.js";
+import { fireProducerCheckpoint } from "../sync.js";
 import { layout } from "../views/layout.js";
 import { sourceGateView } from "../views/source-gate.js";
 import { planListView, planDetailView } from "../views/plan.js";
@@ -393,13 +394,7 @@ export function planRoutes(config: ConsoleConfig) {
       return c.json({ ok: false, error: message }, status);
     }
 
-    // Atomic-ish replace: write to a sibling temp file, then rename over the original.
-    // Same-filesystem rename is atomic on POSIX; same-volume on macOS for plain HFS+/APFS.
-    const tempPath = `${filePath}.tmp-${process.pid}-${Date.now()}`;
-    try {
-      writeFileSync(tempPath, result.newRaw, "utf-8");
-      renameSync(tempPath, filePath);
-    } catch (err) {
+    if (!writeAtomic(filePath, result.newRaw)) {
       return c.json({ ok: false, error: "Could not write plan file." }, 500);
     }
 
@@ -542,11 +537,7 @@ export function planRoutes(config: ConsoleConfig) {
       );
     }
 
-    const tempPath = `${filePath}.tmp-${process.pid}-${Date.now()}`;
-    try {
-      writeFileSync(tempPath, markResult.newRaw, "utf-8");
-      renameSync(tempPath, filePath);
-    } catch {
+    if (!writeAtomic(filePath, markResult.newRaw)) {
       return c.json(
         {
           ok: true,
@@ -887,6 +878,10 @@ function writeAtomic(filePath: string, content: string): boolean {
   try {
     writeFileSync(tempPath, content, "utf-8");
     renameSync(tempPath, filePath);
+    // Producer checkpoint (synthesis-repo-guard): the console just changed a
+    // durable file — commit + push exactly that file via the shared checkpoint
+    // script. Fire-and-forget; never blocks or fails the save.
+    fireProducerCheckpoint(filePath);
     return true;
   } catch {
     return false;
