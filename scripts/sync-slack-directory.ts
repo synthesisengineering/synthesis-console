@@ -33,7 +33,7 @@
  */
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
 import { dirname, join } from "path";
-import yaml from "js-yaml";
+import * as yaml from "js-yaml";
 import { loadConfig } from "../src/config.js";
 import {
   getSlackToken,

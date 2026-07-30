@@ -68,7 +68,7 @@ export function renderSidebarLeft(opts: SidebarLeftOpts): string {
           .map((p) =>
             renderProjectListItem({
               id: p.id,
-              source: p.source,
+              source: p._source,
               name: p.name,
               status: p.status,
             })

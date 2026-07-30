@@ -22,7 +22,7 @@
  *       id: C012345ABCD
  */
 import { readFileSync, existsSync } from "fs";
-import yaml from "js-yaml";
+import * as yaml from "js-yaml";
 import type { Source } from "../config.js";
 import { getSlackUsersPath, getSlackChannelsPath } from "../config.js";
 

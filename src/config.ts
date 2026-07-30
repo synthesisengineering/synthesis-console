@@ -1,7 +1,8 @@
 import { readFileSync, existsSync, readdirSync, statSync } from "fs";
+import type { Dirent } from "fs";
 import { join, dirname } from "path";
 import { homedir } from "os";
-import yaml from "js-yaml";
+import * as yaml from "js-yaml";
 
 export interface SlackConfig {
   /** Workspace subdomain, e.g. "rajivpant.slack.com". Used to build https permalinks. */
@@ -109,7 +110,7 @@ function autoDetectSources(): Source[] {
   for (const entry of entries) {
     if (!entry.isDirectory()) continue;
     const wsRoot = join(workspacesDir, entry.name);
-    let wsEntries: ReturnType<typeof readdirSync>;
+    let wsEntries: Dirent<string>[];
     try {
       wsEntries = readdirSync(wsRoot, { withFileTypes: true });
     } catch {

@@ -477,8 +477,9 @@ function detectOuterWrapper(
       const closeType = closeMap[t.type];
       if (closeType) {
         for (let j = i + 1; j < tokens.length; j++) {
-          if (tokens[j].type === closeType && tokens[j].map) {
-            endExclusive = tokens[j].map[1];
+          const closeToken = tokens[j];
+          if (closeToken.type === closeType && closeToken.map) {
+            endExclusive = closeToken.map[1];
             break;
           }
         }
