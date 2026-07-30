@@ -70,8 +70,9 @@ function taskListPlugin(md: MarkdownIt) {
         // Prepend checked checkbox
         const checkToken = new state.Token("html_inline", "", 0);
         checkToken.content = '<input type="checkbox" checked disabled> ';
-        tokens[i].children = tokens[i].children || [];
-        tokens[i].children.unshift(checkToken);
+        const children = tokens[i].children ?? [];
+        children.unshift(checkToken);
+        tokens[i].children = children;
       } else if (content.startsWith("[ ] ")) {
         tokens[i].content = content.slice(4);
         for (let j = i - 1; j >= 0; j--) {
@@ -82,8 +83,9 @@ function taskListPlugin(md: MarkdownIt) {
         }
         const checkToken = new state.Token("html_inline", "", 0);
         checkToken.content = '<input type="checkbox" disabled> ';
-        tokens[i].children = tokens[i].children || [];
-        tokens[i].children.unshift(checkToken);
+        const children = tokens[i].children ?? [];
+        children.unshift(checkToken);
+        tokens[i].children = children;
       }
     }
   });

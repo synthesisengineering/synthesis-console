@@ -1,4 +1,4 @@
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { existsSync, readdirSync, readFileSync, writeFileSync, renameSync, statSync } from "fs";
 import { join } from "path";
 import type { ConsoleConfig, Source } from "../config.js";
@@ -815,11 +815,11 @@ function localTimeLabel(): string {
 /* -------------------------------------------------------------------------- */
 
 function resolveWriteTarget(
-  c: import("hono").Context,
+  c: Context,
   config: ConsoleConfig
-): { src?: Source; filePath: string; error?: ReturnType<import("hono").Context["json"]> } {
-  const sourceName = sanitizePathSegment(c.req.param("source"));
-  const date = sanitizePathSegment(c.req.param("date"));
+): { src?: Source; filePath: string; error?: Response } {
+  const sourceName = sanitizePathSegment(c.req.param("source") ?? "");
+  const date = sanitizePathSegment(c.req.param("date") ?? "");
   if (!sourceName || !date) {
     return { filePath: "", error: c.json({ ok: false, error: "Invalid request path." }, 400) };
   }

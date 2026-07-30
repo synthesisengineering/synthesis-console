@@ -1,5 +1,5 @@
 import { readFileSync } from "fs";
-import yaml from "js-yaml";
+import * as yaml from "js-yaml";
 import type { Source } from "../config.js";
 import { getProjectsPath } from "../config.js";
 

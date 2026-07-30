@@ -166,7 +166,7 @@ export function computePortfolioLanes(sources: Source[]): PortfolioLane[] {
       if (memberHealth.health !== "unknown") {
         signals.push(`${member.name}: ${memberHealth.health}${memberHealth.detail ? " · " + memberHealth.detail : ""}`);
       }
-      const prev = rollup;
+      const prev: LaneHealth = rollup;
       rollup = worse(rollup, memberHealth.health);
       if (rollup !== prev && memberHealth.detail) {
         detail = `${member.name} — ${memberHealth.detail}`;

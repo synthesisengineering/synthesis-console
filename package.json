@@ -9,17 +9,19 @@
     "demo": "bun run src/index.ts --demo",
     "sync-slack": "bun run scripts/sync-slack-directory.ts",
     "setup-slack": "bun run scripts/setup-slack.ts",
+    "typecheck": "tsc --noEmit",
     "autostart:install": "bash scripts/install-autostart-$(uname -s | tr '[:upper:]' '[:lower:]' | sed 's/darwin/macos/').sh",
     "autostart:uninstall": "bash scripts/uninstall-autostart-$(uname -s | tr '[:upper:]' '[:lower:]' | sed 's/darwin/macos/').sh"
   },
   "dependencies": {
-    "hono": "^4.7.0",
-    "js-yaml": "^4.1.0",
-    "markdown-it": "^14.1.1"
+    "hono": "^4.12.32",
+    "js-yaml": "^5.2.2",
+    "markdown-it": "^14.3.0"
   },
   "devDependencies": {
-    "@types/js-yaml": "^4.0.9",
-    "@types/markdown-it": "^14.1.2"
+    "@types/markdown-it": "^14.1.2",
+    "bun-types": "^1.3.14",
+    "typescript": "^7.0.2"
   },
   "license": "Apache-2.0",
   "repository": {
