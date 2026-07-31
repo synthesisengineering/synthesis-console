@@ -1,5 +1,11 @@
 import { execFile } from "node:child_process";
-import { existsSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  readFileSync,
+  readdirSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -27,18 +33,128 @@ const SYNTHESIS_HOME =
 const REPORT_DIR = join(SYNTHESIS_HOME, "repo-guard");
 const QUIET_FLAG = join(SYNTHESIS_HOME, "quiet-audio");
 
-const SKILL_DIR =
-  process.env.SYNTHESIS_REPO_GUARD_DIR ||
-  join(homedir(), ".claude", "skills", "synthesis-repo-guard");
-const CHECK_SCRIPT = join(SKILL_DIR, "repo_sync_check.py");
-const CHECKPOINT_SCRIPT = join(SKILL_DIR, "checkpoint_sync.py");
+const SKILL_NAME = "synthesis-repo-guard";
+
+/**
+ * Where the skill can live. A skill reaches a machine by several routes and
+ * the route changes over time — a native plugin (Claude Code or Codex), a
+ * direct copy into a user-level skills directory, or a pinned checkout. A
+ * single hardcoded path silently turns every sync feature off the day the
+ * install route changes, which is exactly what a plugin migration does.
+ *
+ * Resolution is ordered most-explicit to most-legacy, and is re-run while
+ * unresolved so installing the skill does not require a console restart.
+ */
+function candidateSkillDirs(): string[] {
+  const home = homedir();
+  const dirs: string[] = [];
+
+  // 1. Explicit override always wins.
+  const override = process.env.SYNTHESIS_REPO_GUARD_DIR;
+  if (override) dirs.push(override);
+
+  // 2. Synthesis-owned stable location: survives client plugin churn.
+  dirs.push(join(SYNTHESIS_HOME, "skills", SKILL_NAME));
+
+  // 3. Native plugin caches, newest version first. Marketplace and plugin
+  //    names differ per adopter, so scan rather than hardcode them.
+  for (const client of [join(home, ".claude"), join(home, ".codex")]) {
+    dirs.push(...pluginCacheDirs(join(client, "plugins", "cache")));
+  }
+
+  // 4. Legacy direct copies into user-level skill directories.
+  dirs.push(join(home, ".claude", "skills", SKILL_NAME));
+  dirs.push(join(home, ".agents", "skills", SKILL_NAME));
+
+  return dirs;
+}
+
+/** `<cache>/<marketplace>/<plugin>/<version>/skills/<name>`, newest version first. */
+function pluginCacheDirs(cacheRoot: string): string[] {
+  const found: { version: string; dir: string }[] = [];
+  for (const marketplace of safeReaddir(cacheRoot)) {
+    const mpDir = join(cacheRoot, marketplace);
+    for (const plugin of safeReaddir(mpDir)) {
+      const pluginDir = join(mpDir, plugin);
+      for (const version of safeReaddir(pluginDir)) {
+        const dir = join(pluginDir, version, "skills", SKILL_NAME);
+        if (existsSync(dir)) found.push({ version, dir });
+      }
+    }
+  }
+  return found
+    .sort((a, b) => compareVersions(b.version, a.version))
+    .map((f) => f.dir);
+}
+
+function safeReaddir(dir: string): string[] {
+  try {
+    return readdirSync(dir, { withFileTypes: true })
+      .filter((e) => e.isDirectory() && !e.name.startsWith("."))
+      .map((e) => e.name);
+  } catch {
+    return [];
+  }
+}
+
+/** Numeric-segment comparison; non-numeric versions sort below numeric ones. */
+function compareVersions(a: string, b: string): number {
+  const pa = a.split(/[.\-+]/);
+  const pb = b.split(/[.\-+]/);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const na = Number.parseInt(pa[i] ?? "", 10);
+    const nb = Number.parseInt(pb[i] ?? "", 10);
+    const aNum = Number.isNaN(na);
+    const bNum = Number.isNaN(nb);
+    if (aNum && bNum) continue;
+    if (aNum) return -1;
+    if (bNum) return 1;
+    if (na !== nb) return na - nb;
+  }
+  return 0;
+}
+
+let resolvedSkillDir: string | null = null;
+
+/** The resolved skill directory, or null when the skill is not installed. */
+export function skillDir(): string | null {
+  if (resolvedSkillDir && existsSync(join(resolvedSkillDir, "repo_sync_check.py"))) {
+    return resolvedSkillDir;
+  }
+  resolvedSkillDir = null;
+  for (const dir of candidateSkillDirs()) {
+    if (
+      existsSync(join(dir, "repo_sync_check.py")) &&
+      existsSync(join(dir, "checkpoint_sync.py"))
+    ) {
+      resolvedSkillDir = dir;
+      break;
+    }
+  }
+  return resolvedSkillDir;
+}
+
+/** Locations searched, for the empty state to report when nothing resolved. */
+export function searchedSkillDirs(): string[] {
+  return candidateSkillDirs();
+}
+
+function checkScript(): string | null {
+  const dir = skillDir();
+  return dir ? join(dir, "repo_sync_check.py") : null;
+}
+
+function checkpointScript(): string | null {
+  const dir = skillDir();
+  return dir ? join(dir, "checkpoint_sync.py") : null;
+}
 
 // Refresh the detector at most this often when status is requested (the chip
 // polls every 5 min; a fresh report is written by every refresh).
 const REFRESH_STALE_MS = 5 * 60 * 1000;
 
 export function guardInstalled(): boolean {
-  return existsSync(CHECK_SCRIPT) && existsSync(CHECKPOINT_SCRIPT);
+  return skillDir() !== null;
 }
 
 export function isQuietAudio(): boolean {
@@ -108,13 +224,14 @@ function runScript(
 
 /** Run the read-only detector now (writes fresh report files). */
 export async function refreshDetector(): Promise<boolean> {
-  if (!guardInstalled() || refreshInflight) return false;
+  const script = checkScript();
+  if (!script || refreshInflight) return false;
   refreshInflight = true;
   lastRefreshStartedAt = Date.now();
   try {
     // --quiet: exit code + report files only. No audio flags — the console
     // renders state; it never triggers audible alerts.
-    const r = await runScript(CHECK_SCRIPT, ["--quiet"], 60_000);
+    const r = await runScript(script, ["--quiet"], 60_000);
     return r.code === 0 || r.code === 1;
   } finally {
     refreshInflight = false;
@@ -161,14 +278,11 @@ export async function runCheckpointNow(): Promise<{
   results: any[];
   error?: string;
 }> {
-  if (!guardInstalled()) {
+  const script = checkpointScript();
+  if (!script) {
     return { ok: false, results: [], error: "repo-guard skill not installed" };
   }
-  const r = await runScript(
-    CHECKPOINT_SCRIPT,
-    ["--no-throttle", "--json"],
-    180_000
-  );
+  const r = await runScript(script, ["--no-throttle", "--json"], 180_000);
   let results: any[] = [];
   try {
     results = JSON.parse(r.stdout);
@@ -186,11 +300,12 @@ export async function runCheckpointNow(): Promise<{
  * on git/network; outcomes land in checkpoint-state.json for the tile.
  */
 export function fireProducerCheckpoint(filePath: string): void {
-  if (!guardInstalled()) return;
+  const script = checkpointScript();
+  if (!script) return;
   try {
     const child = execFile(
       "python3",
-      [CHECKPOINT_SCRIPT, "--repo", filePath, "--now", "--quiet"],
+      [script, "--repo", filePath, "--now", "--quiet"],
       { timeout: 120_000 },
       () => {
         /* outcome recorded in checkpoint-state.json */

@@ -1,5 +1,5 @@
 import { escapeHtml } from "../utils.js";
-import type { SyncStatus } from "../sync.js";
+import { searchedSkillDirs, type SyncStatus } from "../sync.js";
 
 /**
  * /sync — the full-detail repo-sync page. This is a PRIVATE, deliberately
@@ -9,11 +9,22 @@ import type { SyncStatus } from "../sync.js";
  */
 export function syncView(status: SyncStatus): string {
   if (!status.installed) {
+    // Report every location actually searched. An empty state that names only
+    // one path sends you looking in the wrong place when the install route
+    // changes (a plugin migration moves the skill; the old path is innocent).
+    const searched = searchedSkillDirs()
+      .map((d) => `<li><code>${escapeHtml(d)}</code></li>`)
+      .join("\n");
     return `<h1>Repo Sync</h1>
-<p>The <code>synthesis-repo-guard</code> skill is not installed at
-<code>~/.claude/skills/synthesis-repo-guard/</code> (or <code>SYNTHESIS_REPO_GUARD_DIR</code>).
-Install it from the synthesis-skills repo to enable sync status, checkpoints, and the
-quiet-audio toggle.</p>`;
+<p>The <code>synthesis-repo-guard</code> skill was not found, so sync status,
+checkpoints, and the quiet-audio toggle are unavailable. Install it from the
+synthesis-skills repo — as a plugin or a direct copy — or point
+<code>SYNTHESIS_REPO_GUARD_DIR</code> at a checkout.</p>
+<p>A directory counts as installed when it contains both
+<code>repo_sync_check.py</code> and <code>checkpoint_sync.py</code>. Searched, in order:</p>
+<ul>
+${searched}
+</ul>`;
   }
 
   const rep = status.report;
