@@ -57,6 +57,7 @@ export function layout(opts: {
       <ul>
         ${nav}
         <li><a href="/sync" id="sync-chip" class="sync-chip" title="Repo sync status">●<span class="sync-chip-count"></span></a></li>
+        <li><a href="/context" id="context-chip" class="sync-chip" title="Context integrity">◆<span class="sync-chip-count"></span></a></li>
         ${picker}
       </ul>
     </nav>
@@ -79,6 +80,7 @@ function buildNav(currentPath: string): string {
     { href: "/plans", label: "Plans", match: "/plans" },
     { href: "/people", label: "People", match: "/people" },
     { href: "/ledger", label: "Ledger", match: "/ledger" },
+    { href: "/context", label: "Context", match: "/context" },
     { href: "/lessons", label: "Lessons", match: "/lessons" },
   ];
 
@@ -1365,6 +1367,44 @@ function layoutScript(): string {
         setInterval(pollSyncChip, SYNC_POLL_MS);
         document.addEventListener('visibilitychange', function () {
           if (!document.hidden) pollSyncChip();
+        });
+      }
+
+      // Context-integrity chip: green — corpus clean; amber — defects in the
+      // durable layer; gray — no report and no doctor. Same visual language
+      // as the sync chip; the number is the defect count.
+      function renderContextChip(data) {
+        var chip = document.getElementById('context-chip');
+        if (!chip) return;
+        var count = chip.querySelector('.sync-chip-count');
+        chip.classList.remove('sync-ok', 'sync-dirty', 'sync-alert', 'sync-na');
+        if (!data || (data.defects === null && !data.doctorAvailable)) {
+          chip.classList.add('sync-na');
+          chip.title = 'Context integrity: status unavailable';
+          if (count) count.textContent = '';
+          return;
+        }
+        var defects = data.defects || 0;
+        chip.classList.add(defects > 0 ? 'sync-dirty' : 'sync-ok');
+        chip.title = 'Context integrity: ' + (defects > 0 ? defects + ' defect(s) in the durable layer' : 'corpus clean')
+          + (data.generatedAt ? ' (as of ' + data.generatedAt + ')' : '')
+          + (data.auditing ? ' · audit running' : '');
+        if (count) count.textContent = defects > 0 ? String(defects) : '';
+      }
+
+      function pollContextChip() {
+        if (!document.getElementById('context-chip')) return;
+        fetch('/api/context-status', { cache: 'no-store' })
+          .then(function (r) { return r.ok ? r.json() : null; })
+          .then(renderContextChip)
+          .catch(function () { renderContextChip(null); });
+      }
+
+      if (document.getElementById('context-chip')) {
+        pollContextChip();
+        setInterval(pollContextChip, SYNC_POLL_MS);
+        document.addEventListener('visibilitychange', function () {
+          if (!document.hidden) pollContextChip();
         });
       }
     })();
