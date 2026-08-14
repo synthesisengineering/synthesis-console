@@ -13,6 +13,7 @@ import {
   ageSecondsAt,
   conformanceArgs,
   conformanceEvidencePaths,
+  conformanceInvocation,
   conformanceReportMatchesProfile,
   conformanceScript,
   conformanceSourceRoot,
@@ -149,6 +150,20 @@ describe("agent conformance evidence", () => {
     expect(args[index + 1]).toBe(evidence.privateCodexReceipt);
   });
 
+  test("runs from source when the pointer worktree is stale", () => {
+    const invocation = conformanceInvocation(
+      "/plugin/conformance.py",
+      { project: "/project", worktree: "/deleted-worktree" },
+      "/tmp/report.json",
+      conformanceEvidencePaths("/tmp/synthesis-test"),
+      "/verified-source",
+      false
+    );
+    expect(invocation.cwd).toBe("/verified-source");
+    const repoRoot = invocation.args.indexOf("--repo-root");
+    expect(invocation.args[repoRoot + 1]).toBe("/deleted-worktree");
+  });
+
   test("requires a Git-backed source root and never treats a plugin cache as source", () => {
     const root = mkdtempSync(join(tmpdir(), "synthesis-console-source-"));
     temporaryRoots.push(root);
@@ -264,5 +279,17 @@ describe("agent conformance evidence", () => {
     expect(layoutSource.slice(errorBranch, passBranch)).toContain(
       "chip.classList.add('sync-dirty')"
     );
+  });
+
+  test("renders the source-checkout error in the empty state", () => {
+    const value = status();
+    value.conformanceAvailable = false;
+    value.report = null;
+    value.auditError =
+      "A Git-backed synthesis-skills source checkout is required to run conformance.";
+    const html = agentConformanceView(value);
+    expect(html).toContain("Git-backed synthesis-skills source checkout");
+    expect(html).toContain("SYNTHESIS_CONFORMANCE_SOURCE_ROOT");
+    expect(html).not.toContain("SYNTHESIS_AGENT_CONFORMANCE_DIR");
   });
 });

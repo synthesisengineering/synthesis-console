@@ -28,6 +28,12 @@ function renderChecks(plane: string, checks: ConformanceCheck[]): string {
 
 export function agentConformanceView(status: AgentConformanceStatus): string {
   if (!status.conformanceAvailable && !status.report) {
+    if (status.auditError) {
+      return `<h1>Agent Conformance</h1>
+<p><mark>Audit error:</mark> ${escapeHtml(status.auditError)}</p>
+<p>Set <code>SYNTHESIS_CONFORMANCE_SOURCE_ROOT</code> to a Git-backed
+<code>synthesis-skills</code> source checkout, then run the audit again.</p>`;
+    }
     return `<h1>Agent Conformance</h1>
 <p>The <code>synthesis-agent-conformance</code> program and its evidence cache
 are unavailable. Install the synthesis-skills plugin or set

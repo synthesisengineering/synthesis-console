@@ -261,6 +261,36 @@ export function conformanceArgs(
   return args;
 }
 
+export function conformanceInvocation(
+  script: string,
+  pointer: ActiveProjectPointer,
+  reportPath: string,
+  evidence = conformanceEvidencePaths(),
+  sourceRoot = conformanceSourceRoot(),
+  includePrivateControlPlane =
+    process.env.SYNTHESIS_PRIVATE_CONTROL_PLANE === "1"
+): { args: string[]; cwd: string } {
+  if (!sourceRoot) {
+    throw new Error(
+      "A Git-backed synthesis-skills source checkout is required for conformance."
+    );
+  }
+  return {
+    args: conformanceArgs(
+      script,
+      pointer,
+      reportPath,
+      evidence,
+      sourceRoot,
+      includePrivateControlPlane
+    ),
+    // The active-project worktree is evidence under test and can legitimately
+    // be stale or missing. The verified source checkout is the stable runtime
+    // directory from which the checker can report that defect.
+    cwd: sourceRoot,
+  };
+}
+
 export function freshConformanceReport(
   value: unknown,
   previousCheckedAt: string | undefined,
@@ -351,7 +381,7 @@ export function runConformanceNow(): boolean {
     );
     const pendingReportPath = auditReportPath;
     removeReport(pendingReportPath);
-    const args = conformanceArgs(
+    const invocation = conformanceInvocation(
       script,
       pointer as ActiveProjectPointer,
       pendingReportPath,
@@ -361,8 +391,8 @@ export function runConformanceNow(): boolean {
     );
     const child = execFile(
       "python3",
-      args,
-      { cwd: pointer.worktree, timeout: 15 * 60 * 1000 },
+      invocation.args,
+      { cwd: invocation.cwd, timeout: 15 * 60 * 1000 },
       (error, _stdout, stderr) => {
         try {
           const report = freshConformanceReport(
