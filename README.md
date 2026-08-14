@@ -28,6 +28,9 @@ invokes the installed conformance program explicitly and atomically replaces
 that cache. It also displays the context-doctor cache age so the two parts of
 the durable cross-client handoff can be inspected together. The console does
 not reinterpret checker results or mutate them on a background timer.
+Public-plugin conformance is the default. Set
+`SYNTHESIS_PRIVATE_CONTROL_PLANE=1` only on installations that also deploy the
+private control plane and its live-receipt evidence.
 
 ## Screenshots
 

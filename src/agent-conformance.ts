@@ -129,9 +129,9 @@ export function conformanceEvidencePaths(
     ),
     privateCodexReceipt: join(
       synthesisHome,
-      "agent-control",
+      "agent-conformance",
       "live",
-      "codex-sessionstart.json"
+      "private-sessionstart-codex.json"
     ),
     capabilityEvidence: join(
       synthesisHome,
@@ -156,7 +156,9 @@ export function conformanceArgs(
   pointer: ActiveProjectPointer,
   reportPath: string,
   evidence = conformanceEvidencePaths(),
-  sourceRoot = process.env.SYNTHESIS_CONFORMANCE_SOURCE_ROOT
+  sourceRoot = process.env.SYNTHESIS_CONFORMANCE_SOURCE_ROOT,
+  includePrivateControlPlane =
+    process.env.SYNTHESIS_PRIVATE_CONTROL_PLANE === "1"
 ): string[] {
   const args = [
     script,
@@ -174,13 +176,17 @@ export function conformanceArgs(
     evidence.publicCodexReceipt,
     "--public-claude-sessionstart-receipt",
     evidence.publicClaudeReceipt,
-    "--private-codex-sessionstart-receipt",
-    evidence.privateCodexReceipt,
     "--capability-evidence",
     evidence.capabilityEvidence,
     "--coordination-board",
     evidence.coordinationBoard,
   ];
+  if (includePrivateControlPlane) {
+    args.push(
+      "--private-codex-sessionstart-receipt",
+      evidence.privateCodexReceipt
+    );
+  }
   if (sourceRoot) args.push("--source-root", sourceRoot);
   return args;
 }

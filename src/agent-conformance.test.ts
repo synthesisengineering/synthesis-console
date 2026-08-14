@@ -18,6 +18,7 @@ const temporaryRoots: string[] = [];
 
 afterEach(() => {
   delete process.env.SYNTHESIS_AGENT_CONFORMANCE_DIR;
+  delete process.env.SYNTHESIS_PRIVATE_CONTROL_PLANE;
   for (const root of temporaryRoots.splice(0)) rmSync(root, { recursive: true });
 });
 
@@ -78,20 +79,20 @@ describe("agent conformance evidence", () => {
     expect(ageSecondsAt("not-a-date", now)).toBeNull();
   });
 
-  test("passes every evidence path from the configured synthesis home", () => {
+  test("passes public evidence paths from the configured synthesis home", () => {
     const evidence = conformanceEvidencePaths("/tmp/synthesis-test");
     const args = conformanceArgs(
       "/plugin/conformance.py",
       { project: "/project", worktree: "/repo" },
       "/tmp/report.json",
       evidence,
-      "/source"
+      "/source",
+      false
     );
     for (const [flag, value] of [
       ["--active-project-file", evidence.activeProject],
       ["--public-codex-sessionstart-receipt", evidence.publicCodexReceipt],
       ["--public-claude-sessionstart-receipt", evidence.publicClaudeReceipt],
-      ["--private-codex-sessionstart-receipt", evidence.privateCodexReceipt],
       ["--capability-evidence", evidence.capabilityEvidence],
       ["--coordination-board", evidence.coordinationBoard],
     ]) {
@@ -99,6 +100,22 @@ describe("agent conformance evidence", () => {
       expect(index).toBeGreaterThan(-1);
       expect(args[index + 1]).toBe(value);
     }
+    expect(args).not.toContain("--private-codex-sessionstart-receipt");
+  });
+
+  test("adds private receipt evidence only when explicitly configured", () => {
+    const evidence = conformanceEvidencePaths("/tmp/synthesis-test");
+    const args = conformanceArgs(
+      "/plugin/conformance.py",
+      { project: "/project", worktree: "/repo" },
+      "/tmp/report.json",
+      evidence,
+      "/source",
+      true
+    );
+    const index = args.indexOf("--private-codex-sessionstart-receipt");
+    expect(index).toBeGreaterThan(-1);
+    expect(args[index + 1]).toBe(evidence.privateCodexReceipt);
   });
 
   test("rejects absent, malformed, unchanged, and stale audit reports", () => {
