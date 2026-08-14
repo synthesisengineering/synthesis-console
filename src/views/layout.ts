@@ -1418,16 +1418,16 @@ function layoutScript(): string {
         if (!chip) return;
         var count = chip.querySelector('.sync-chip-count');
         chip.classList.remove('sync-ok', 'sync-dirty', 'sync-alert', 'sync-na');
+        if (data && data.auditError) {
+          chip.classList.add('sync-dirty');
+          chip.title = 'Agent conformance: audit error · ' + data.auditError;
+          if (count) count.textContent = '!';
+          return;
+        }
         if (!data || (!data.conformanceAvailable && !data.status)) {
           chip.classList.add('sync-na');
           chip.title = 'Agent conformance: status unavailable';
           if (count) count.textContent = '';
-          return;
-        }
-        if (data.auditError) {
-          chip.classList.add('sync-dirty');
-          chip.title = 'Agent conformance: audit error · ' + data.auditError;
-          if (count) count.textContent = '!';
           return;
         }
         var failures = data.requiredFailures || 0;

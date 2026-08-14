@@ -254,7 +254,7 @@ describe("agent conformance evidence", () => {
       join(import.meta.dir, "views", "layout.ts"),
       "utf-8"
     );
-    const errorBranch = layoutSource.indexOf("if (data.auditError)");
+    const errorBranch = layoutSource.indexOf("if (data && data.auditError)");
     const passBranch = layoutSource.indexOf(
       "var failures = data.requiredFailures || 0",
       errorBranch
