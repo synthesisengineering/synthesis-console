@@ -1,12 +1,15 @@
 import { execFile } from "node:child_process";
 import {
+  existsSync,
   mkdirSync,
   readFileSync,
+  readdirSync,
+  realpathSync,
   renameSync,
   unlinkSync,
 } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { resolveSkillScript } from "./skill-resolution.js";
 
 const SYNTHESIS_HOME =
@@ -19,6 +22,7 @@ const CONTEXT_REPORT_PATH = join(
   "last-report.json"
 );
 const STALE_AFTER_SECONDS = 4 * 60 * 60;
+const PRIVATE_CODEX_CHECK = "hook-live.codex-private-sessionstart";
 
 export interface ConformanceCheck {
   name: string;
@@ -56,6 +60,57 @@ export function conformanceScript(): string | null {
     "conformance.py",
     process.env.SYNTHESIS_AGENT_CONFORMANCE_DIR
   );
+}
+
+function verifiedSourceRoot(candidate: string): string | null {
+  try {
+    const root = realpathSync(resolve(candidate));
+    if (
+      !existsSync(join(root, ".git")) ||
+      !existsSync(join(root, ".codex-plugin", "plugin.json")) ||
+      !existsSync(
+        join(
+          root,
+          "skills",
+          "synthesis-agent-conformance",
+          "scripts",
+          "conformance.py"
+        )
+      )
+    ) return null;
+    return root;
+  } catch {
+    return null;
+  }
+}
+
+/** Resolve a Git-backed synthesis-skills checkout, never an installed cache. */
+export function conformanceSourceRoot(
+  configured = process.env.SYNTHESIS_CONFORMANCE_SOURCE_ROOT,
+  home = homedir(),
+  cwd = process.cwd()
+): string | null {
+  if (configured !== undefined) return verifiedSourceRoot(configured);
+
+  const candidates = [
+    join(dirname(cwd), "synthesis-skills"),
+    join(cwd, "synthesis-skills"),
+  ];
+  const workspaces = join(home, "workspaces");
+  try {
+    for (const entry of readdirSync(workspaces, { withFileTypes: true })) {
+      if (entry.isDirectory()) {
+        candidates.push(join(workspaces, entry.name, "synthesis-skills"));
+      }
+    }
+  } catch {
+    // The explicit and cwd-adjacent candidates remain available.
+  }
+  for (const candidate of candidates) {
+    const root = verifiedSourceRoot(candidate);
+    if (root) return root;
+  }
+  return null;
 }
 
 function parseJson(path: string): unknown {
@@ -99,6 +154,16 @@ export function validateConformanceReport(value: unknown): ConformanceReport | n
   ) return null;
   if (candidate.ok !== (candidate.status === "PASS")) return null;
   return candidate as ConformanceReport;
+}
+
+export function conformanceReportMatchesProfile(
+  report: ConformanceReport,
+  includePrivateControlPlane: boolean
+): boolean {
+  return (
+    !includePrivateControlPlane ||
+    report.checks.some((check) => check.name === PRIVATE_CODEX_CHECK)
+  );
 }
 
 export interface ConformanceEvidencePaths {
@@ -156,10 +221,15 @@ export function conformanceArgs(
   pointer: ActiveProjectPointer,
   reportPath: string,
   evidence = conformanceEvidencePaths(),
-  sourceRoot = process.env.SYNTHESIS_CONFORMANCE_SOURCE_ROOT,
+  sourceRoot = conformanceSourceRoot(),
   includePrivateControlPlane =
     process.env.SYNTHESIS_PRIVATE_CONTROL_PLANE === "1"
 ): string[] {
+  if (!sourceRoot) {
+    throw new Error(
+      "A Git-backed synthesis-skills source checkout is required for conformance."
+    );
+  }
   const args = [
     script,
     "all",
@@ -187,17 +257,23 @@ export function conformanceArgs(
       evidence.privateCodexReceipt
     );
   }
-  if (sourceRoot) args.push("--source-root", sourceRoot);
+  args.push("--source-root", sourceRoot);
   return args;
 }
 
 export function freshConformanceReport(
   value: unknown,
   previousCheckedAt: string | undefined,
-  startedAt: number
+  startedAt: number,
+  includePrivateControlPlane =
+    process.env.SYNTHESIS_PRIVATE_CONTROL_PLANE === "1"
 ): ConformanceReport | null {
   const report = validateConformanceReport(value);
-  if (!report || report.checked_at === previousCheckedAt) return null;
+  if (
+    !report ||
+    !conformanceReportMatchesProfile(report, includePrivateControlPlane) ||
+    report.checked_at === previousCheckedAt
+  ) return null;
   const checkedAt = Date.parse(report.checked_at);
   if (Number.isNaN(checkedAt) || checkedAt < startedAt - 5_000) return null;
   return report;
@@ -212,19 +288,34 @@ function removeReport(path: string): void {
 }
 
 export function getAgentConformanceStatus(): AgentConformanceStatus {
-  const report = validateConformanceReport(parseJson(REPORT_PATH));
+  const script = conformanceScript();
+  const sourceRoot = conformanceSourceRoot();
+  const includePrivateControlPlane =
+    process.env.SYNTHESIS_PRIVATE_CONTROL_PLANE === "1";
+  const cachedReport = validateConformanceReport(parseJson(REPORT_PATH));
+  const profileMismatch = Boolean(
+    cachedReport &&
+    !conformanceReportMatchesProfile(cachedReport, includePrivateControlPlane)
+  );
+  const report = profileMismatch ? null : cachedReport;
   const age = ageSecondsAt(report?.checked_at);
   const context = parseJson(CONTEXT_REPORT_PATH) as
     | { generated_at?: string }
     | null;
   const contextGeneratedAt = context?.generated_at ?? null;
   return {
-    conformanceAvailable: conformanceScript() !== null,
+    conformanceAvailable: script !== null && sourceRoot !== null,
     report,
     ageSeconds: age,
     stale: age === null || age > STALE_AFTER_SECONDS,
     auditing: auditInflight,
-    auditError: lastAuditError,
+    auditError:
+      lastAuditError ||
+      (profileMismatch
+        ? "Cached conformance evidence does not include the configured private control plane."
+        : script && !sourceRoot
+          ? "A Git-backed synthesis-skills source checkout is required to run conformance."
+          : null),
     contextGeneratedAt,
     contextAgeSeconds: ageSecondsAt(contextGeneratedAt),
   };
@@ -233,7 +324,13 @@ export function getAgentConformanceStatus(): AgentConformanceStatus {
 /** Run the authoritative conformance program; it atomically writes REPORT_PATH. */
 export function runConformanceNow(): boolean {
   const script = conformanceScript();
+  const sourceRoot = conformanceSourceRoot();
   if (!script || auditInflight) return false;
+  if (!sourceRoot) {
+    lastAuditError =
+      "A Git-backed synthesis-skills source checkout is required to run conformance.";
+    return false;
+  }
   const pointer = parseJson(POINTER_PATH) as
     | { project?: string; worktree?: string }
     | null;
@@ -257,7 +354,10 @@ export function runConformanceNow(): boolean {
     const args = conformanceArgs(
       script,
       pointer as ActiveProjectPointer,
-      pendingReportPath
+      pendingReportPath,
+      conformanceEvidencePaths(),
+      sourceRoot,
+      process.env.SYNTHESIS_PRIVATE_CONTROL_PLANE === "1"
     );
     const child = execFile(
       "python3",
@@ -268,7 +368,8 @@ export function runConformanceNow(): boolean {
           const report = freshConformanceReport(
             parseJson(pendingReportPath),
             previousCheckedAt,
-            startedAt
+            startedAt,
+            process.env.SYNTHESIS_PRIVATE_CONTROL_PLANE === "1"
           );
           if (!report) {
             lastAuditError =

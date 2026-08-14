@@ -1,12 +1,21 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   ageSecondsAt,
   conformanceArgs,
   conformanceEvidencePaths,
+  conformanceReportMatchesProfile,
   conformanceScript,
+  conformanceSourceRoot,
   freshConformanceReport,
   validateConformanceReport,
   type AgentConformanceStatus,
@@ -18,6 +27,7 @@ const temporaryRoots: string[] = [];
 
 afterEach(() => {
   delete process.env.SYNTHESIS_AGENT_CONFORMANCE_DIR;
+  delete process.env.SYNTHESIS_CONFORMANCE_SOURCE_ROOT;
   delete process.env.SYNTHESIS_PRIVATE_CONTROL_PLANE;
   for (const root of temporaryRoots.splice(0)) rmSync(root, { recursive: true });
 });
@@ -55,6 +65,27 @@ function status(): AgentConformanceStatus {
     contextGeneratedAt: checkedAt,
     contextAgeSeconds: 60,
   };
+}
+
+function makeSourceRoot(root: string): string {
+  mkdirSync(join(root, ".git"), { recursive: true });
+  mkdirSync(join(root, ".codex-plugin"), { recursive: true });
+  mkdirSync(
+    join(root, "skills", "synthesis-agent-conformance", "scripts"),
+    { recursive: true }
+  );
+  writeFileSync(join(root, ".codex-plugin", "plugin.json"), "{}\n");
+  writeFileSync(
+    join(
+      root,
+      "skills",
+      "synthesis-agent-conformance",
+      "scripts",
+      "conformance.py"
+    ),
+    "# test\n"
+  );
+  return realpathSync(root);
 }
 
 describe("agent conformance evidence", () => {
@@ -118,6 +149,61 @@ describe("agent conformance evidence", () => {
     expect(args[index + 1]).toBe(evidence.privateCodexReceipt);
   });
 
+  test("requires a Git-backed source root and never treats a plugin cache as source", () => {
+    const root = mkdtempSync(join(tmpdir(), "synthesis-console-source-"));
+    temporaryRoots.push(root);
+    const source = makeSourceRoot(join(root, "synthesis-skills"));
+    const cache = join(root, ".codex", "plugins", "cache", "synthesis-skills");
+    mkdirSync(
+      join(cache, "skills", "synthesis-agent-conformance", "scripts"),
+      { recursive: true }
+    );
+    writeFileSync(join(cache, ".codex-plugin.json"), "{}\n");
+
+    expect(conformanceSourceRoot(source, root, root)).toBe(source);
+    expect(conformanceSourceRoot(cache, root, root)).toBeNull();
+    expect(() =>
+      conformanceArgs(
+        "/plugin/conformance.py",
+        { project: "/project", worktree: "/repo" },
+        "/tmp/report.json",
+        conformanceEvidencePaths("/tmp/synthesis-test"),
+        null,
+        false
+      )
+    ).toThrow("Git-backed synthesis-skills source checkout");
+  });
+
+  test("discovers a source checkout beneath the workspace root", () => {
+    const root = mkdtempSync(join(tmpdir(), "synthesis-console-workspace-"));
+    temporaryRoots.push(root);
+    const source = makeSourceRoot(
+      join(root, "home", "workspaces", "example", "synthesis-skills")
+    );
+
+    expect(
+      conformanceSourceRoot(undefined, join(root, "home"), join(root, "console"))
+    ).toBe(source);
+  });
+
+  test("rejects public-only reports when the private profile is configured", () => {
+    const report = status().report!;
+    expect(conformanceReportMatchesProfile(report, false)).toBeTrue();
+    expect(conformanceReportMatchesProfile(report, true)).toBeFalse();
+
+    const privateReport = {
+      ...report,
+      checks: [
+        ...report.checks,
+        {
+          ...report.checks[0],
+          name: "hook-live.codex-private-sessionstart",
+        },
+      ],
+    };
+    expect(conformanceReportMatchesProfile(privateReport, true)).toBeTrue();
+  });
+
   test("rejects absent, malformed, unchanged, and stale audit reports", () => {
     const startedAt = Date.parse("2026-08-13T12:05:00.000Z");
     expect(freshConformanceReport(null, checkedAt, startedAt)).toBeNull();
@@ -161,5 +247,22 @@ describe("agent conformance evidence", () => {
     const html = agentConformanceView(value);
     expect(html).not.toContain('<script>alert("x")</script>');
     expect(html).toContain("&lt;script&gt;");
+  });
+
+  test("renders audit errors before cached PASS state in the nav chip", () => {
+    const layoutSource = readFileSync(
+      join(import.meta.dir, "views", "layout.ts"),
+      "utf-8"
+    );
+    const errorBranch = layoutSource.indexOf("if (data.auditError)");
+    const passBranch = layoutSource.indexOf(
+      "var failures = data.requiredFailures || 0",
+      errorBranch
+    );
+    expect(errorBranch).toBeGreaterThan(-1);
+    expect(passBranch).toBeGreaterThan(errorBranch);
+    expect(layoutSource.slice(errorBranch, passBranch)).toContain(
+      "chip.classList.add('sync-dirty')"
+    );
   });
 });

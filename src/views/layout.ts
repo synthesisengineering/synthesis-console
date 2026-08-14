@@ -1424,6 +1424,12 @@ function layoutScript(): string {
           if (count) count.textContent = '';
           return;
         }
+        if (data.auditError) {
+          chip.classList.add('sync-dirty');
+          chip.title = 'Agent conformance: audit error · ' + data.auditError;
+          if (count) count.textContent = '!';
+          return;
+        }
         var failures = data.requiredFailures || 0;
         var cls = failures > 0 ? 'sync-alert' : (data.stale || data.status !== 'PASS' ? 'sync-dirty' : 'sync-ok');
         chip.classList.add(cls);
