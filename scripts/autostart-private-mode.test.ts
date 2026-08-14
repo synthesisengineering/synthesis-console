@@ -142,6 +142,44 @@ test("Python selection persists an absolute path", () => {
   expect(result.stdout.trim()).toBe(expected);
 });
 
+test("Python selection probe executes successfully in a real Python runtime", () => {
+  const root = mkdtempSync(join(tmpdir(), "synthesis-console-real-python-"));
+  writeFileSync(join(root, "yaml.py"), "# Hermetic import stub for the runtime probe.\n");
+  const hermeticPath = "/usr/bin:/bin";
+  const located = spawnSync(
+    "python3",
+    ["-c", "import os, sys; print(os.path.abspath(sys.executable))"],
+    {
+      env: process.env,
+      encoding: "utf-8",
+    },
+  );
+  expect(located.status, located.stderr).toBe(0);
+  const candidate = located.stdout.trim();
+  const helper = join(repoRoot, "scripts", "python-runtime.sh");
+  const result = spawnSync(
+    "bash",
+    ["-c", 'source "$1"; find_synthesis_python', "synthesis-console-test", helper],
+    {
+      env: {
+        HOME: root,
+        PATH: hermeticPath,
+        PYTHONPATH: root,
+        SYNTHESIS_PYTHON_BIN: candidate,
+      },
+      encoding: "utf-8",
+    },
+  );
+  const expected = spawnSync(
+    candidate,
+    ["-c", "import os, sys; print(os.path.abspath(sys.executable))"],
+    { encoding: "utf-8" },
+  ).stdout.trim();
+  rmSync(root, { recursive: true, force: true });
+  expect(result.status, result.stderr).toBe(0);
+  expect(result.stdout.trim()).toBe(expected);
+});
+
 test("Python selection resolves a pyenv shim to its service-safe interpreter", () => {
   const root = mkdtempSync(join(tmpdir(), "synthesis-console-pyenv-"));
   const pyenvBin = join(root, ".pyenv", "bin");
