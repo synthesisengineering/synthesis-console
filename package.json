@@ -1,6 +1,6 @@
 {
   "name": "synthesis-console",
-  "version": "1.3.0",
+  "version": "1.3.1",
   "description": "Local console for synthesis engineering \u2014 browsable project state, continuity, and conformance",
   "type": "module",
   "scripts": {

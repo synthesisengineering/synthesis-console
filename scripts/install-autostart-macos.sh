@@ -49,6 +49,11 @@ fi
 mkdir -p "${LOG_DIR}"
 mkdir -p "$(dirname "${PLIST_PATH}")"
 
+PRIVATE_CONTROL_PLANE_XML=""
+if [[ "${SYNTHESIS_PRIVATE_CONTROL_PLANE:-0}" == "1" ]]; then
+  PRIVATE_CONTROL_PLANE_XML=$'        <key>SYNTHESIS_PRIVATE_CONTROL_PLANE</key>\n        <string>1</string>'
+fi
+
 LAUNCH_WRAPPER="${REPO_ROOT}/scripts/launch.sh"
 chmod +x "${LAUNCH_WRAPPER}" 2>/dev/null || true
 
@@ -86,6 +91,7 @@ cat > "${PLIST_PATH}" <<PLIST
         <string>$(dirname "${BUN_BIN}"):/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
         <key>BUN_BIN</key>
         <string>${BUN_BIN}</string>
+${PRIVATE_CONTROL_PLANE_XML}
     </dict>
     <key>ProcessType</key>
     <string>Background</string>
