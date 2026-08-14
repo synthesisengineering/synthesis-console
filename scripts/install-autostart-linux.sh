@@ -57,6 +57,11 @@ fi
 
 mkdir -p "${UNIT_DIR}"
 
+PRIVATE_CONTROL_PLANE_ENV=""
+if [[ "${SYNTHESIS_PRIVATE_CONTROL_PLANE:-0}" == "1" ]]; then
+  PRIVATE_CONTROL_PLANE_ENV="Environment=SYNTHESIS_PRIVATE_CONTROL_PLANE=1"
+fi
+
 cat > "${UNIT_PATH}" <<UNIT
 [Unit]
 Description=Synthesis Console — local dashboard for synthesis engineering
@@ -70,6 +75,7 @@ ExecStart=${BUN_BIN} run src/index.ts
 Restart=on-failure
 RestartSec=10
 Environment=PATH=$(dirname "${BUN_BIN}"):/usr/local/bin:/usr/bin:/bin
+${PRIVATE_CONTROL_PLANE_ENV}
 
 [Install]
 WantedBy=default.target

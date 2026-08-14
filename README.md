@@ -39,6 +39,15 @@ private control plane and its live-receipt evidence. In that mode, cached
 public-only evidence is rejected instead of being displayed as a private-mode
 PASS.
 
+Persist that mode when installing the login service:
+
+```bash
+SYNTHESIS_PRIVATE_CONTROL_PLANE=1 bun run autostart:install
+```
+
+The macOS LaunchAgent and Linux systemd installer include the opt-in only when
+the value is exactly `1`; ordinary public installations remain unchanged.
+
 ## Screenshots
 
 **Project list** — grouped by initiative with status badges, search, and filter toggles:
