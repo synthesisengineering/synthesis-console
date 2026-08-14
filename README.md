@@ -14,6 +14,31 @@ Synthesis Console renders those files as a browsable console. Project list with 
 
 Synthesis engineering is a discipline for structured human-AI collaboration — like agile or Scrum, but for AI-native workflows. This console is one open-source implementation of the tooling layer. Others can build their own.
 
+## What v1.3 adds — cross-agent conformance
+
+v1.3 adds an **Agent Conformance** page at `/conformance`. It renders the
+structured evidence produced by `synthesis-agent-conformance` across five
+separate planes: source, deployment, runtime, live behavior, and product
+surface. A passing source test cannot mask an untrusted hook or a stale live
+receipt. The nav chip is green only for a fresh overall PASS, amber for stale
+or incomplete evidence, and red for required failures.
+
+The page reads `~/.synthesis/agent-conformance/last-report.json`; **Audit now**
+invokes the installed conformance program explicitly and atomically replaces
+that cache. The checker itself may resolve from a native plugin, but every
+audit is anchored to a Git-backed `synthesis-skills` source checkout discovered
+beside the console or beneath `~/workspaces/`; set
+`SYNTHESIS_CONFORMANCE_SOURCE_ROOT` when the checkout lives elsewhere. An
+invalid explicit source path fails closed. It also displays the context-doctor
+cache age so the two parts of the durable cross-client handoff can be inspected
+together. The console does not reinterpret checker results or mutate them on a
+background timer.
+Public-plugin conformance is the default. Set
+`SYNTHESIS_PRIVATE_CONTROL_PLANE=1` only on installations that also deploy the
+private control plane and its live-receipt evidence. In that mode, cached
+public-only evidence is rejected instead of being displayed as a private-mode
+PASS.
+
 ## Screenshots
 
 **Project list** — grouped by initiative with status badges, search, and filter toggles:

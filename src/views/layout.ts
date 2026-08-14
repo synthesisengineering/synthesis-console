@@ -58,6 +58,7 @@ export function layout(opts: {
         ${nav}
         <li><a href="/sync" id="sync-chip" class="sync-chip" title="Repo sync status">●<span class="sync-chip-count"></span></a></li>
         <li><a href="/context" id="context-chip" class="sync-chip" title="Context integrity">◆<span class="sync-chip-count"></span></a></li>
+        <li><a href="/conformance" id="conformance-chip" class="sync-chip" title="Agent conformance">▲<span class="sync-chip-count"></span></a></li>
         ${picker}
       </ul>
     </nav>
@@ -81,6 +82,7 @@ function buildNav(currentPath: string): string {
     { href: "/people", label: "People", match: "/people" },
     { href: "/ledger", label: "Ledger", match: "/ledger" },
     { href: "/context", label: "Context", match: "/context" },
+    { href: "/conformance", label: "Conformance", match: "/conformance" },
     { href: "/lessons", label: "Lessons", match: "/lessons" },
   ];
 
@@ -1405,6 +1407,54 @@ function layoutScript(): string {
         setInterval(pollContextChip, SYNC_POLL_MS);
         document.addEventListener('visibilitychange', function () {
           if (!document.hidden) pollContextChip();
+        });
+      }
+
+      // Agent-conformance chip: green only for fresh PASS evidence; amber for
+      // stale/unknown results; red for required failures; gray when both the
+      // checker and its evidence cache are unavailable.
+      function renderConformanceChip(data) {
+        var chip = document.getElementById('conformance-chip');
+        if (!chip) return;
+        var count = chip.querySelector('.sync-chip-count');
+        chip.classList.remove('sync-ok', 'sync-dirty', 'sync-alert', 'sync-na');
+        if (data && data.auditError) {
+          chip.classList.add('sync-dirty');
+          chip.title = 'Agent conformance: audit error · ' + data.auditError;
+          if (count) count.textContent = '!';
+          return;
+        }
+        if (!data || (!data.conformanceAvailable && !data.status)) {
+          chip.classList.add('sync-na');
+          chip.title = 'Agent conformance: status unavailable';
+          if (count) count.textContent = '';
+          return;
+        }
+        var failures = data.requiredFailures || 0;
+        var cls = failures > 0 ? 'sync-alert' : (data.stale || data.status !== 'PASS' ? 'sync-dirty' : 'sync-ok');
+        chip.classList.add(cls);
+        var label = failures > 0
+          ? failures + ' required failure(s)'
+          : (data.stale ? 'evidence stale' : (data.status || 'no recorded result'));
+        chip.title = 'Agent conformance: ' + label
+          + (data.checkedAt ? ' (as of ' + data.checkedAt + ')' : '')
+          + (data.auditing ? ' · audit running' : '');
+        if (count) count.textContent = failures > 0 ? String(failures) : (data.stale ? '!' : '');
+      }
+
+      function pollConformanceChip() {
+        if (!document.getElementById('conformance-chip')) return;
+        fetch('/api/conformance-status', { cache: 'no-store' })
+          .then(function (r) { return r.ok ? r.json() : null; })
+          .then(renderConformanceChip)
+          .catch(function () { renderConformanceChip(null); });
+      }
+
+      if (document.getElementById('conformance-chip')) {
+        pollConformanceChip();
+        setInterval(pollConformanceChip, SYNC_POLL_MS);
+        document.addEventListener('visibilitychange', function () {
+          if (!document.hidden) pollConformanceChip();
         });
       }
     })();

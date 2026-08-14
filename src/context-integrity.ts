@@ -1,7 +1,8 @@
 import { execFile } from "node:child_process";
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { resolveSkillScript } from "./skill-resolution.js";
 
 /**
  * Context-integrity integration (synthesis-context-lifecycle's context
@@ -23,79 +24,15 @@ const REPORT_PATH = join(SYNTHESIS_HOME, "context-doctor", "last-report.json");
 const SKILL_NAME = "synthesis-context-lifecycle";
 const SCRIPT_NAME = "context_doctor.py";
 
-/** Same multi-location resolution as the repo-guard integration (v1.1.1):
- * env override, synthesis-owned path, both clients' plugin caches newest
- * first, then legacy direct copies. A hardcoded path dies on the next
- * install-route change. */
-function candidateSkillDirs(): string[] {
-  const home = homedir();
-  const dirs: string[] = [];
-  const override = process.env.SYNTHESIS_CONTEXT_LIFECYCLE_DIR;
-  if (override) dirs.push(override);
-  dirs.push(join(SYNTHESIS_HOME, "skills", SKILL_NAME));
-  for (const client of [join(home, ".claude"), join(home, ".codex")]) {
-    dirs.push(...pluginCacheDirs(join(client, "plugins", "cache")));
-  }
-  dirs.push(join(home, ".claude", "skills", SKILL_NAME));
-  dirs.push(join(home, ".agents", "skills", SKILL_NAME));
-  return dirs;
-}
-
-function pluginCacheDirs(cacheRoot: string): string[] {
-  const found: { version: string; dir: string }[] = [];
-  for (const marketplace of safeReaddir(cacheRoot)) {
-    const mpDir = join(cacheRoot, marketplace);
-    for (const plugin of safeReaddir(mpDir)) {
-      const pluginDir = join(mpDir, plugin);
-      for (const version of safeReaddir(pluginDir)) {
-        const dir = join(pluginDir, version, "skills", SKILL_NAME);
-        if (existsSync(dir)) found.push({ version, dir });
-      }
-    }
-  }
-  return found
-    .sort((a, b) => compareVersions(b.version, a.version))
-    .map((f) => f.dir);
-}
-
-function safeReaddir(dir: string): string[] {
-  try {
-    return readdirSync(dir, { withFileTypes: true })
-      .filter((e) => e.isDirectory() && !e.name.startsWith("."))
-      .map((e) => e.name);
-  } catch {
-    return [];
-  }
-}
-
-function compareVersions(a: string, b: string): number {
-  const pa = a.split(/[.\-+]/);
-  const pb = b.split(/[.\-+]/);
-  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
-    const na = Number.parseInt(pa[i] ?? "", 10);
-    const nb = Number.parseInt(pb[i] ?? "", 10);
-    const aNan = Number.isNaN(na);
-    const bNan = Number.isNaN(nb);
-    if (aNan && bNan) continue;
-    if (aNan) return -1;
-    if (bNan) return 1;
-    if (na !== nb) return na - nb;
-  }
-  return 0;
-}
-
 let resolvedScript: string | null = null;
 
 export function doctorScript(): string | null {
   if (resolvedScript && existsSync(resolvedScript)) return resolvedScript;
-  resolvedScript = null;
-  for (const dir of candidateSkillDirs()) {
-    const script = join(dir, "scripts", SCRIPT_NAME);
-    if (existsSync(script)) {
-      resolvedScript = script;
-      break;
-    }
-  }
+  resolvedScript = resolveSkillScript(
+    SKILL_NAME,
+    SCRIPT_NAME,
+    process.env.SYNTHESIS_CONTEXT_LIFECYCLE_DIR
+  );
   return resolvedScript;
 }
 

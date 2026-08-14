@@ -10,6 +10,7 @@ import { peopleRoutes } from "./routes/people.js";
 import { ledgerRoutes } from "./routes/ledger.js";
 import { syncRoutes } from "./routes/sync.js";
 import { contextIntegrityRoutes } from "./routes/context-integrity.js";
+import { agentConformanceRoutes } from "./routes/agent-conformance.js";
 import { layout } from "./views/layout.js";
 import { activeSources } from "./active-sources.js";
 import pkg from "../package.json";
@@ -60,6 +61,7 @@ app.route("/", peopleRoutes(config));
 app.route("/", ledgerRoutes(config));
 app.route("/", syncRoutes(config));
 app.route("/", contextIntegrityRoutes(config));
+app.route("/", agentConformanceRoutes(config));
 
 app.notFound((c) => {
   const active = activeSources(c, config);
