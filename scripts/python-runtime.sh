@@ -22,7 +22,7 @@ find_synthesis_python() {
   resolved_compatible_python() {
     resolved="$(
       "$1" -c \
-        'import os, sys, yaml; raise SystemExit(1) if sys.version_info.major != 3 else None; print(os.path.abspath(sys.executable))' \
+        'import os, sys, yaml; print(os.path.abspath(sys.executable)); sys.exit(0 if sys.version_info.major == 3 else 1)' \
         2>/dev/null
     )" || return 1
     [[ -n "${resolved}" && "${resolved}" != *$'\n'* ]] || return 1
