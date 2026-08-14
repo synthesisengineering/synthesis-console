@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { synthesisPythonBin } from "./python-runtime.js";
 import { resolveSkillScript } from "./skill-resolution.js";
 
 /**
@@ -86,7 +87,7 @@ export function runAuditNow(): boolean {
   auditInflight = true;
   try {
     const child = execFile(
-      "python3",
+      synthesisPythonBin(),
       [script, "--quiet"],
       { timeout: 15 * 60 * 1000 },
       () => {

@@ -8,6 +8,7 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { synthesisPythonBin } from "./python-runtime.js";
 
 /**
  * Repo-sync integration (synthesis-repo-guard v2).
@@ -208,7 +209,7 @@ function runScript(
 ): Promise<{ code: number; stdout: string; stderr: string }> {
   return new Promise((resolve) => {
     execFile(
-      "python3",
+      synthesisPythonBin(),
       [script, ...args],
       { timeout: timeoutMs, maxBuffer: 8 * 1024 * 1024 },
       (err: any, stdout: any, stderr: any) => {
@@ -304,7 +305,7 @@ export function fireProducerCheckpoint(filePath: string): void {
   if (!script) return;
   try {
     const child = execFile(
-      "python3",
+      synthesisPythonBin(),
       [script, "--repo", filePath, "--now", "--quiet"],
       { timeout: 120_000 },
       () => {

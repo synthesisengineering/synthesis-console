@@ -47,6 +47,12 @@ SYNTHESIS_PRIVATE_CONTROL_PLANE=1 bun run autostart:install
 
 The macOS LaunchAgent and Linux systemd installer include the opt-in only when
 the value is exactly `1`; ordinary public installations remain unchanged.
+Both installers also select and persist the exact Python interpreter used by
+the Console's Python-backed controls after verifying Python 3 and PyYAML. Set
+`SYNTHESIS_PYTHON_BIN` to require a specific compatible interpreter; an
+invalid explicit interpreter makes installation fail instead of leaving the
+dashboard to report cascading false failures. Generated LaunchAgent and
+systemd values are escaped for their respective service-manager formats.
 
 ## Screenshots
 
