@@ -1,5 +1,12 @@
 import { expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -11,10 +18,13 @@ function executable(path: string, body: string): void {
 }
 
 function installFixture(platform: "Darwin" | "Linux", privateMode: boolean): string {
-  const home = mkdtempSync(join(tmpdir(), "synthesis-console-autostart-"));
+  const home = mkdtempSync(
+    join(realpathSync(tmpdir()), 'synthesis-console-& "%\\$-autostart-'),
+  );
   const fakeBin = join(home, "bin");
   mkdirSync(fakeBin);
   executable(join(fakeBin, "bun"), "#!/bin/sh\nexit 0\n");
+  executable(join(fakeBin, "python3"), "#!/bin/sh\nprintf '%s\\n' \"$0\"\n");
   executable(join(fakeBin, "uname"), `#!/bin/sh\nprintf '%s\\n' '${platform}'\n`);
   executable(
     join(fakeBin, "launchctl"),
@@ -46,6 +56,31 @@ function installFixture(platform: "Darwin" | "Linux", privateMode: boolean): str
       ? join(home, "Library", "LaunchAgents", "org.synthesisengineering.console.plist")
       : join(home, ".config", "systemd", "user", "synthesis-console.service");
   const content = readFileSync(installed, "utf-8");
+  expect(content).toContain("SYNTHESIS_PYTHON_BIN");
+  const pythonPath = join(fakeBin, "python3");
+  expect(content).toContain(
+    platform === "Darwin"
+      ? pythonPath.replaceAll("&", "&amp;")
+      : pythonPath
+          .replaceAll("\\", "\\\\")
+          .replaceAll('"', '\\"')
+          .replaceAll("%", "%%"),
+  );
+  if (platform === "Linux") {
+    const bunPath = join(fakeBin, "bun")
+      .replaceAll("\\", "\\\\")
+      .replaceAll('"', '\\"')
+      .replaceAll("%", "%%")
+      .replaceAll("$", () => "$$");
+    expect(content).toContain(`ExecStart="${bunPath}" run src/index.ts`);
+    const verify = spawnSync("systemd-analyze", ["verify", installed], {
+      env: { ...process.env, SYSTEMD_LOG_LEVEL: "warning" },
+      encoding: "utf-8",
+    });
+    if (!verify.error) {
+      expect(verify.status, `${verify.stdout}\n${verify.stderr}`).toBe(0);
+    }
+  }
   rmSync(home, { recursive: true, force: true });
   return content;
 }
@@ -57,4 +92,89 @@ test("autostart installers persist private conformance mode only when opted in",
       "SYNTHESIS_PRIVATE_CONTROL_PLANE",
     );
   }
+});
+
+test("Python selection fails closed for an incompatible explicit interpreter", () => {
+  const root = mkdtempSync(join(tmpdir(), "synthesis-console-python-"));
+  const incompatible = join(root, "python3");
+  executable(incompatible, "#!/bin/sh\nexit 1\n");
+  const helper = join(repoRoot, "scripts", "python-runtime.sh");
+  const result = spawnSync(
+    "bash",
+    ["-c", 'source "$1"; find_synthesis_python', "synthesis-console-test", helper],
+    {
+      env: {
+        HOME: root,
+        PATH: "/usr/bin:/bin",
+        SYNTHESIS_PYTHON_BIN: incompatible,
+      },
+      encoding: "utf-8",
+    },
+  );
+  rmSync(root, { recursive: true, force: true });
+  expect(result.status).not.toBe(0);
+  expect(result.stderr).toContain("does not name an executable Python 3 with PyYAML");
+});
+
+test("Python selection persists an absolute path", () => {
+  const root = mkdtempSync(join(tmpdir(), "synthesis-console-python-"));
+  const relativeDirectory = join(root, "venv", "bin");
+  mkdirSync(relativeDirectory, { recursive: true });
+  const interpreter = join(relativeDirectory, "python3");
+  executable(interpreter, "#!/bin/sh\nprintf '%s\\n' \"$0\"\n");
+  const helper = join(repoRoot, "scripts", "python-runtime.sh");
+  const result = spawnSync(
+    "bash",
+    ["-c", 'source "$1"; find_synthesis_python', "synthesis-console-test", helper],
+    {
+      cwd: root,
+      env: {
+        HOME: root,
+        PATH: "/usr/bin:/bin",
+        SYNTHESIS_PYTHON_BIN: "venv/bin/python3",
+      },
+      encoding: "utf-8",
+    },
+  );
+  const expected = realpathSync(interpreter);
+  rmSync(root, { recursive: true, force: true });
+  expect(result.status, result.stderr).toBe(0);
+  expect(result.stdout.trim()).toBe(expected);
+});
+
+test("Python selection resolves a pyenv shim to its service-safe interpreter", () => {
+  const root = mkdtempSync(join(tmpdir(), "synthesis-console-pyenv-"));
+  const pyenvBin = join(root, ".pyenv", "bin");
+  const shimDirectory = join(root, ".pyenv", "shims");
+  const versionDirectory = join(root, ".pyenv", "versions", "3.12", "bin");
+  mkdirSync(pyenvBin, { recursive: true });
+  mkdirSync(shimDirectory, { recursive: true });
+  mkdirSync(versionDirectory, { recursive: true });
+  executable(join(pyenvBin, "pyenv"), "#!/bin/sh\nexit 0\n");
+  const interpreter = join(versionDirectory, "python3");
+  executable(interpreter, "#!/bin/sh\nprintf '%s\\n' \"$0\"\n");
+  const shim = join(shimDirectory, "python3");
+  executable(
+    shim,
+    "#!/bin/sh\n" +
+      "command -v pyenv >/dev/null 2>&1 || exit 99\n" +
+      `exec '${interpreter}' \"$@\"\n`,
+  );
+  const helper = join(repoRoot, "scripts", "python-runtime.sh");
+  const result = spawnSync(
+    "bash",
+    ["-c", 'source "$1"; find_synthesis_python', "synthesis-console-test", helper],
+    {
+      env: {
+        HOME: root,
+        PATH: `${shimDirectory}:${pyenvBin}:/usr/bin:/bin`,
+        SYNTHESIS_PYTHON_BIN: shim,
+      },
+      encoding: "utf-8",
+    },
+  );
+  const expected = realpathSync(interpreter);
+  rmSync(root, { recursive: true, force: true });
+  expect(result.status, result.stderr).toBe(0);
+  expect(result.stdout.trim()).toBe(expected);
 });

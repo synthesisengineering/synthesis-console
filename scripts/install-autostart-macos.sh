@@ -14,6 +14,7 @@ LABEL="org.synthesisengineering.console"
 PLIST_PATH="${HOME}/Library/LaunchAgents/${LABEL}.plist"
 LOG_DIR="${HOME}/Library/Logs/synthesis-console"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "${REPO_ROOT}/scripts/python-runtime.sh"
 
 if [[ "$(uname -s)" != "Darwin" ]]; then
   echo "Error: This script is for macOS. For Linux, use install-autostart-linux.sh." >&2
@@ -41,10 +42,25 @@ if [[ -z "${BUN_BIN}" ]]; then
   exit 1
 fi
 
+PYTHON_BIN="$(find_synthesis_python || true)"
+if [[ -z "${PYTHON_BIN}" ]]; then
+  echo "Error: Could not find a Python 3 interpreter with PyYAML." >&2
+  echo "Install PyYAML or set SYNTHESIS_PYTHON_BIN to a compatible interpreter." >&2
+  exit 1
+fi
+
 if [[ ! -d "${REPO_ROOT}/node_modules" ]]; then
   echo "Error: Dependencies not installed. Run 'bun install' in ${REPO_ROOT} first." >&2
   exit 1
 fi
+
+xml_escape() {
+  local value="$1"
+  value="${value//&/&amp;}"
+  value="${value//</&lt;}"
+  value="${value//>/&gt;}"
+  printf '%s\n' "${value}"
+}
 
 mkdir -p "${LOG_DIR}"
 mkdir -p "$(dirname "${PLIST_PATH}")"
@@ -57,6 +73,14 @@ fi
 LAUNCH_WRAPPER="${REPO_ROOT}/scripts/launch.sh"
 chmod +x "${LAUNCH_WRAPPER}" 2>/dev/null || true
 
+LAUNCH_WRAPPER_XML="$(xml_escape "${LAUNCH_WRAPPER}")"
+REPO_ROOT_XML="$(xml_escape "${REPO_ROOT}")"
+STDOUT_PATH_XML="$(xml_escape "${LOG_DIR}/stdout.log")"
+STDERR_PATH_XML="$(xml_escape "${LOG_DIR}/stderr.log")"
+SERVICE_PATH_XML="$(xml_escape "$(dirname "${BUN_BIN}"):/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin")"
+BUN_BIN_XML="$(xml_escape "${BUN_BIN}")"
+PYTHON_BIN_XML="$(xml_escape "${PYTHON_BIN}")"
+
 cat > "${PLIST_PATH}" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -66,10 +90,10 @@ cat > "${PLIST_PATH}" <<PLIST
     <string>${LABEL}</string>
     <key>ProgramArguments</key>
     <array>
-        <string>${LAUNCH_WRAPPER}</string>
+        <string>${LAUNCH_WRAPPER_XML}</string>
     </array>
     <key>WorkingDirectory</key>
-    <string>${REPO_ROOT}</string>
+    <string>${REPO_ROOT_XML}</string>
     <key>RunAtLoad</key>
     <true/>
     <key>KeepAlive</key>
@@ -82,15 +106,17 @@ cat > "${PLIST_PATH}" <<PLIST
     <key>ThrottleInterval</key>
     <integer>10</integer>
     <key>StandardOutPath</key>
-    <string>${LOG_DIR}/stdout.log</string>
+    <string>${STDOUT_PATH_XML}</string>
     <key>StandardErrorPath</key>
-    <string>${LOG_DIR}/stderr.log</string>
+    <string>${STDERR_PATH_XML}</string>
     <key>EnvironmentVariables</key>
     <dict>
         <key>PATH</key>
-        <string>$(dirname "${BUN_BIN}"):/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+        <string>${SERVICE_PATH_XML}</string>
         <key>BUN_BIN</key>
-        <string>${BUN_BIN}</string>
+        <string>${BUN_BIN_XML}</string>
+        <key>SYNTHESIS_PYTHON_BIN</key>
+        <string>${PYTHON_BIN_XML}</string>
 ${PRIVATE_CONTROL_PLANE_XML}
     </dict>
     <key>ProcessType</key>
@@ -147,6 +173,7 @@ echo "Synthesis Console is installed to start on login."
 echo "  Label:   ${LABEL}"
 echo "  Repo:    ${REPO_ROOT}"
 echo "  Bun:     ${BUN_BIN}"
+echo "  Python:  ${PYTHON_BIN}"
 echo "  Logs:    ${LOG_DIR}/{stdout,stderr}.log"
 echo ""
 echo "It should already be running. Try: open http://localhost:5555"

@@ -10,6 +10,7 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
+import { synthesisPythonBin } from "./python-runtime.js";
 import { resolveSkillScript } from "./skill-resolution.js";
 
 const SYNTHESIS_HOME =
@@ -269,13 +270,14 @@ export function conformanceInvocation(
   sourceRoot = conformanceSourceRoot(),
   includePrivateControlPlane =
     process.env.SYNTHESIS_PRIVATE_CONTROL_PLANE === "1"
-): { args: string[]; cwd: string } {
+): { executable: string; args: string[]; cwd: string } {
   if (!sourceRoot) {
     throw new Error(
       "A Git-backed synthesis-skills source checkout is required for conformance."
     );
   }
   return {
+    executable: synthesisPythonBin(),
     args: conformanceArgs(
       script,
       pointer,
@@ -390,7 +392,7 @@ export function runConformanceNow(): boolean {
       process.env.SYNTHESIS_PRIVATE_CONTROL_PLANE === "1"
     );
     const child = execFile(
-      "python3",
+      invocation.executable,
       invocation.args,
       { cwd: invocation.cwd, timeout: 15 * 60 * 1000 },
       (error, _stdout, stderr) => {

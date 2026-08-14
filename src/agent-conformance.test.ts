@@ -21,6 +21,7 @@ import {
   validateConformanceReport,
   type AgentConformanceStatus,
 } from "./agent-conformance.js";
+import { synthesisPythonBin } from "./python-runtime.js";
 import { agentConformanceView } from "./views/agent-conformance.js";
 
 const checkedAt = "2026-08-13T12:00:00.000Z";
@@ -30,6 +31,7 @@ afterEach(() => {
   delete process.env.SYNTHESIS_AGENT_CONFORMANCE_DIR;
   delete process.env.SYNTHESIS_CONFORMANCE_SOURCE_ROOT;
   delete process.env.SYNTHESIS_PRIVATE_CONTROL_PLANE;
+  delete process.env.SYNTHESIS_PYTHON_BIN;
   for (const root of temporaryRoots.splice(0)) rmSync(root, { recursive: true });
 });
 
@@ -160,8 +162,27 @@ describe("agent conformance evidence", () => {
       false
     );
     expect(invocation.cwd).toBe("/verified-source");
+    expect(invocation.executable).toBe("python3");
     const repoRoot = invocation.args.indexOf("--repo-root");
     expect(invocation.args[repoRoot + 1]).toBe("/deleted-worktree");
+  });
+
+  test("uses the configured conformance Python interpreter", () => {
+    expect(synthesisPythonBin(" /opt/example/python3 ")).toBe(
+      "/opt/example/python3"
+    );
+    expect(synthesisPythonBin("  ")).toBe("python3");
+
+    process.env.SYNTHESIS_PYTHON_BIN = "/opt/example/python3";
+    const invocation = conformanceInvocation(
+      "/plugin/conformance.py",
+      { project: "/project", worktree: "/repo" },
+      "/tmp/report.json",
+      conformanceEvidencePaths("/tmp/synthesis-test"),
+      "/verified-source",
+      false
+    );
+    expect(invocation.executable).toBe("/opt/example/python3");
   });
 
   test("requires a Git-backed source root and never treats a plugin cache as source", () => {
