@@ -31,7 +31,15 @@ function compareVersions(a: string, b: string): number {
   return 0;
 }
 
-function pluginSkillDirs(cacheRoot: string, skillName: string): string[] {
+interface PluginSkillCandidate {
+  version: string;
+  dir: string;
+}
+
+function pluginSkillCandidates(
+  cacheRoot: string,
+  skillName: string
+): PluginSkillCandidate[] {
   const found: { version: string; dir: string }[] = [];
   for (const marketplace of safeReaddir(cacheRoot)) {
     const marketplaceDir = join(cacheRoot, marketplace);
@@ -43,7 +51,16 @@ function pluginSkillDirs(cacheRoot: string, skillName: string): string[] {
       }
     }
   }
-  return found
+  return found;
+}
+
+/** Return plugin skill directories newest-first across every client cache. */
+export function pluginSkillDirs(
+  cacheRoots: string[],
+  skillName: string
+): string[] {
+  return cacheRoots
+    .flatMap((cacheRoot) => pluginSkillCandidates(cacheRoot, skillName))
     .sort((a, b) => compareVersions(b.version, a.version))
     .map((entry) => entry.dir);
 }
@@ -58,9 +75,14 @@ export function resolveSkillScript(
   const candidates: string[] = [];
   if (override) candidates.push(override);
   candidates.push(join(SYNTHESIS_HOME, "skills", skillName));
-  for (const client of [join(home, ".claude"), join(home, ".codex")]) {
-    candidates.push(...pluginSkillDirs(join(client, "plugins", "cache"), skillName));
-  }
+  candidates.push(
+    ...pluginSkillDirs(
+      [join(home, ".claude"), join(home, ".codex")].map((client) =>
+        join(client, "plugins", "cache")
+      ),
+      skillName
+    )
+  );
   candidates.push(join(home, ".claude", "skills", skillName));
   candidates.push(join(home, ".agents", "skills", skillName));
   for (const directory of candidates) {
