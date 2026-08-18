@@ -205,6 +205,7 @@ Plus any subset of these, by presence, to declare what the source provides:
 - `lessons_dir` — activates the source in the lessons view (expects `YYYY-MM-DD-slug.md` filenames).
 - `plans_dir` — activates the source in the daily plans view (expects `YYYY-MM-DD.md` filenames).
 - `notes_dir` — reserved for the Phase 3 notes viewer.
+- `fragments_dir` — *(specified, not yet implemented)* per-workspace daily-plan fragments, so plan content stays inside the workspace it belongs to; see [docs/plan-storage-separation.md](docs/plan-storage-separation.md).
 
 Optional flags:
 - `display_name` — human-readable label in the UI (defaults to `name`).
@@ -220,6 +221,8 @@ A URL with `?sources=a,b` overrides the cookie for that session — useful for b
 ### Daily plans convention
 
 Daily plans are typically person-scoped: one person, one plan per day across all their roles. The convention is to declare `plans_dir` on exactly one source (usually a personal base). If you need per-client or per-business plans, declare `plans_dir` on multiple sources — the console merges them with source badges, and the plans calendar offers a "dates with plans from multiple sources" view below the month.
+
+**Storage separation (design documented, renderer support pending).** A person-scoped plan that inlines every organization's content also accretes that content into a personal repository — which becomes a problem at the end of an engagement, when the organization's data should leave the machine with it (a hard requirement in regulated work). The answer is to keep the converged *view* while separating the *files*: each workspace's plan content lives as a **fragment** in that workspace's own private repository (the ritual-worker artifact doubles as the fragment), the person-side plan becomes a **shell** of person-scoped content plus pointers, and the console merges them at display time. Deleting a workspace's folders then removes its data. See **[docs/plan-storage-separation.md](docs/plan-storage-separation.md)** for the model, the planned `fragments_dir` config key, renderer behavior, and an honest statement of what erasure does and does not remove.
 
 See [docs/layouts.md](docs/layouts.md) for alternative layout recipes (single monorepo, team-shared + personal overlays, multi-business, team lead tracking reports, legacy underscore-prefixed).
 

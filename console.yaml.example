@@ -18,6 +18,11 @@
 #     lessons_dir:     relative path to lessons dir — contributes the lessons view (optional)
 #     plans_dir:       relative path to daily-plans dir — contributes the plans view (optional)
 #     notes_dir:       relative path to notes dir — reserved for Phase 3 wiki viewer (optional)
+#     fragments_dir:   relative path to this workspace's daily-plan fragments / ritual-worker
+#                      artifacts. SPECIFIED BUT NOT YET IMPLEMENTED — see
+#                      docs/plan-storage-separation.md. Keeps each organization's plan
+#                      content inside its own workspace so deleting the workspace removes
+#                      its data; the console merges fragments into one view at display time.
 #     preps_dir:       relative path to meeting-preps dir — contributes /prep pages + plan-page cards (v1.0+, optional)
 #     ledgers_dir:     relative path to catchup-ledgers dir — contributes the /ledger view + sidebar digest (v1.0+, optional)
 #     default_active:  true/false — pre-selected on first run (optional, default false)
