@@ -2,7 +2,9 @@
 
 Local-first, open-source tooling for synthesis engineering. Renders your project management YAML and markdown files as browsable, searchable pages in a web browser.
 
-Read the full story: [Synthesis Console: open-source tooling for synthesis engineering](https://synthesiscoding.org/articles/synthesis-console-open-source-tooling-for-synthesis-engineering/)
+**Website:** [ragenie.ai/synthesis-console](https://ragenie.ai/synthesis-console/)
+
+Read the origin story: [Synthesis Console: open-source tooling for synthesis engineering](https://synthesiscoding.org/blog/2026/04/12/synthesis-console-open-source-tooling-for-synthesis-engineering/)
 
 ![Synthesis Console](screenshots/dashboard.png)
 
