@@ -49,7 +49,7 @@ if [[ -z "${PYTHON_BIN}" ]]; then
   exit 1
 fi
 
-if [[ ! -d "${REPO_ROOT}/node_modules" ]]; then
+if [[ ! -d "${REPO_ROOT}/node_modules" && ! -f "${REPO_ROOT}/app/index.js" ]]; then
   echo "Error: Dependencies not installed. Run 'bun install' in ${REPO_ROOT} first." >&2
   exit 1
 fi
@@ -62,6 +62,8 @@ xml_escape() {
   printf '%s\n' "${value}"
 }
 
+"${BUN_BIN}" "${REPO_ROOT}/scripts/service-ownership.ts" check "${PLIST_PATH}"
+
 mkdir -p "${LOG_DIR}"
 mkdir -p "$(dirname "${PLIST_PATH}")"
 
@@ -71,7 +73,6 @@ if [[ "${SYNTHESIS_PRIVATE_CONTROL_PLANE:-0}" == "1" ]]; then
 fi
 
 LAUNCH_WRAPPER="${REPO_ROOT}/scripts/launch.sh"
-chmod +x "${LAUNCH_WRAPPER}" 2>/dev/null || true
 
 LAUNCH_WRAPPER_XML="$(xml_escape "${LAUNCH_WRAPPER}")"
 REPO_ROOT_XML="$(xml_escape "${REPO_ROOT}")"
@@ -125,6 +126,8 @@ ${PRIVATE_CONTROL_PLANE_XML}
 </plist>
 PLIST
 
+"${BUN_BIN}" "${REPO_ROOT}/scripts/service-ownership.ts" record "${PLIST_PATH}"
+
 echo "Wrote plist: ${PLIST_PATH}"
 
 UID_NUM="$(id -u)"
@@ -142,16 +145,18 @@ if launchctl print "${DOMAIN}/${LABEL}" >/dev/null 2>&1; then
   done
 fi
 
-if launchctl bootstrap "${DOMAIN}" "${PLIST_PATH}" 2>/tmp/synthesis-console-bootstrap.err; then
+BOOTSTRAP_ERR="$(mktemp)"
+trap 'rm -f "${BOOTSTRAP_ERR}"' EXIT
+if launchctl bootstrap "${DOMAIN}" "${PLIST_PATH}" 2>"${BOOTSTRAP_ERR}"; then
   echo "Loaded via launchctl bootstrap."
 else
-  ERR="$(cat /tmp/synthesis-console-bootstrap.err 2>/dev/null || true)"
+  ERR="$(cat "${BOOTSTRAP_ERR}" 2>/dev/null || true)"
   echo "launchctl bootstrap failed: ${ERR}" >&2
   echo "Falling back to legacy launchctl load..." >&2
   launchctl load -w "${PLIST_PATH}"
   echo "Loaded via launchctl load (legacy)."
 fi
-rm -f /tmp/synthesis-console-bootstrap.err
+rm -f "${BOOTSTRAP_ERR}"
 
 launchctl enable "${DOMAIN}/${LABEL}" 2>/dev/null || true
 
@@ -165,7 +170,8 @@ for _ in $(seq 1 25); do
   sleep 0.2
 done
 if [[ "${RUNNING}" -ne 1 ]]; then
-  echo "Warning: service did not reach running state. Check ${LOG_DIR}/stderr.log." >&2
+  echo "Error: service did not reach running state. Check ${LOG_DIR}/stderr.log." >&2
+  exit 1
 fi
 
 echo ""

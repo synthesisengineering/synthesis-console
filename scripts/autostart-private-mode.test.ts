@@ -72,7 +72,7 @@ function installFixture(platform: "Darwin" | "Linux", privateMode: boolean): str
       .replaceAll('"', '\\"')
       .replaceAll("%", "%%")
       .replaceAll("$", () => "$$");
-    expect(content).toContain(`ExecStart="${bunPath}" run src/index.ts`);
+    expect(content).toContain(`ExecStart="${bunPath}" run scripts/console-cli.ts start`);
     const verify = spawnSync("systemd-analyze", ["verify", installed], {
       env: { ...process.env, SYSTEMD_LOG_LEVEL: "warning" },
       encoding: "utf-8",

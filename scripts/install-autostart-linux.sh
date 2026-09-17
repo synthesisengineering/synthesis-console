@@ -58,7 +58,7 @@ if [[ -z "${PYTHON_BIN}" ]]; then
   exit 1
 fi
 
-if [[ ! -d "${REPO_ROOT}/node_modules" ]]; then
+if [[ ! -d "${REPO_ROOT}/node_modules" && ! -f "${REPO_ROOT}/app/index.js" ]]; then
   echo "Error: Dependencies not installed. Run 'bun install' in ${REPO_ROOT} first." >&2
   exit 1
 fi
@@ -81,6 +81,8 @@ systemd_escape_exec() {
   printf '%s\n' "${value}"
 }
 
+"${BUN_BIN}" "${REPO_ROOT}/scripts/service-ownership.ts" check "${UNIT_PATH}"
+
 mkdir -p "${UNIT_DIR}"
 
 PRIVATE_CONTROL_PLANE_ENV=""
@@ -102,7 +104,7 @@ After=network.target
 [Service]
 Type=simple
 WorkingDirectory="${REPO_ROOT_SYSTEMD}"
-ExecStart="${BUN_BIN_SYSTEMD}" run src/index.ts
+ExecStart="${BUN_BIN_SYSTEMD}" run scripts/console-cli.ts start
 Restart=on-failure
 RestartSec=10
 Environment="PATH=${SERVICE_PATH_SYSTEMD}"
@@ -112,6 +114,8 @@ ${PRIVATE_CONTROL_PLANE_ENV}
 [Install]
 WantedBy=default.target
 UNIT
+
+"${BUN_BIN}" "${REPO_ROOT}/scripts/service-ownership.ts" record "${UNIT_PATH}"
 
 echo "Wrote unit: ${UNIT_PATH}"
 

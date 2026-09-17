@@ -1,0 +1,37 @@
+name: Distribution and application acceptance
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  consumers:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.13
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/checkout@v4
+        with:
+          repository: synthesisengineering/synthesis-skills
+          ref: stable
+          path: .test-core-source
+      - run: bun install --frozen-lockfile --ignore-scripts
+      - run: python -m pip install pytest
+      - run: bun test
+      - run: bun run typecheck
+      - run: python -B -m pytest scripts/test_distribution.py scripts/test_packaging_provenance.py scripts/test_autostart_uninstall.py scripts/test_lifecycle_bridge.py -q
+        env:
+          SYNTHESIS_CORE_SOURCE: ${{ github.workspace }}/.test-core-source

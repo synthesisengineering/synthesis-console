@@ -44,7 +44,7 @@ PASS.
 Persist that mode when installing the login service:
 
 ```bash
-SYNTHESIS_PRIVATE_CONTROL_PLANE=1 bun run autostart:install
+SYNTHESIS_PRIVATE_CONTROL_PLANE=1 synthesis-console autostart install
 ```
 
 The macOS LaunchAgent and Linux systemd installer include the opt-in only when
@@ -155,29 +155,87 @@ The cockpit is opt-in via heuristic — plans with no recognizable section struc
 
 Setup: `SLACK_USER_TOKEN_RAJIV='xoxp-...' bun run setup-slack <source-name>` does it all in one shot. See [`docs/slack-integration.md`](docs/slack-integration.md) for full details.
 
-## Quick Start
+## Installation and first use
 
-```bash
-# Install Bun (if needed)
-curl -fsSL https://bun.sh/install | bash
+Choose a channel at [the downloads hub](https://synthesiswork.org/download/).
+The published packages install an inert command. They do not change your
+configuration, enable login services, or register agent hooks.
 
-# Clone and run
-git clone https://github.com/synthesisengineering/synthesis-console.git
-cd synthesis-console
-bun install
+```sh
+# Homebrew
+brew install synthesisengineering/tap/synthesis-console
 
-# Try with sample data first
-bun run demo
+# npm (Bun is required to run the command)
+npm install -g @synthesiswork/console
 
-# Then with your own data
-bun run start
+# Bun
+bun add -g @synthesiswork/console
 ```
 
-Open http://localhost:5555 in your browser.
+Run `synthesis-console demo` to view bundled sample data, or
+`synthesis-console start` to use your configured sources. The command works from
+any directory. Open the loopback address printed by the process, normally
+`http://localhost:5555`. Stop the foreground process with Ctrl-C.
+
+`setup` is a separate choice:
+
+```sh
+synthesis-console setup                    # Stage a verified, inert core bundle
+synthesis-console setup --no-dormant-core  # Decline optional staging
+```
+
+Default setup uses the package's exact Synthesis release and commit. It stages
+core files outside agent discovery for later explicit ecosystem activation.
+It does not activate hooks or services. The opt-out response acquires no source
+and writes no new core state; previously staged payloads and receipts stay
+untouched. Ordinary Console commands never stage core files.
+
+Use the packaged core explicitly when you choose to activate or inspect it:
+
+```sh
+synthesis-console synthesis status --json
+synthesis-console synthesis activate --profile full
+synthesis-console synthesis deactivate
+```
+
+This bridge supports only `activate`, `deactivate`, `status`, `doctor`, `repair`,
+and `update`, with remaining arguments forwarded unchanged. It verifies the
+bundled core before execution and preserves its exit status and termination
+signals. It does not require a global `synthesis` executable or a Console
+reinstall. Activation follows the core's permission and client-restart checks;
+deactivation restores an existing modular selection. `synthesis-console
+synthesis --help` is inert. Server, demo and autostart commands never invoke the
+lifecycle bridge.
+
+Bun 1.3.13 or newer runs the Console. npm supplies the package, not Bun.
+Default core setup also needs Git and Python 3.12–3.14. Opt-out needs only
+Python 3.9 or newer in addition to Bun. The release archive bundles the three
+JavaScript dependencies; runtime use does not install packages from a registry.
+
+Release archives and their versioned installer are attached to
+[GitHub releases](https://github.com/synthesisengineering/synthesis-console/releases).
+The installer checks the archive SHA-256 and exact file inventory, including
+executable permissions. It preserves unknown or edited executables and release
+files. Package upgrades are explicit through your selected package manager;
+no background updater is installed. Restart the foreground process after an
+upgrade, or explicitly rerun `synthesis-console autostart install` to refresh
+an owned login service. Your Console configuration remains separate.
+
+To run from source:
+
+```sh
+git clone https://github.com/synthesisengineering/synthesis-console.git
+cd synthesis-console
+bun install --frozen-lockfile --ignore-scripts
+bun run demo
+```
+
+Source checkout setup requires a built release with its verified thin core
+package. Source users can run the Console immediately without staging core.
 
 ## Configuration
 
-Copy `console.yaml.example` to `~/.synthesis/console.yaml` and edit to match your layout.
+If you do not already have a configuration, use `console.yaml.example` as a template for `~/.synthesis/console.yaml`. Edit an existing configuration in place; setup never overwrites it.
 
 ```yaml
 sources:
@@ -273,7 +331,7 @@ Once you're using the console daily, have it start automatically when you log in
 ### macOS (launchd)
 
 ```bash
-bun run autostart:install
+synthesis-console autostart install
 ```
 
 Writes a LaunchAgent plist to `~/Library/LaunchAgents/org.synthesisengineering.console.plist`, loads it, and starts the server. Logs go to `~/Library/Logs/synthesis-console/`.
@@ -281,13 +339,13 @@ Writes a LaunchAgent plist to `~/Library/LaunchAgents/org.synthesisengineering.c
 Uninstall:
 
 ```bash
-bun run autostart:uninstall
+synthesis-console autostart uninstall
 ```
 
 ### Linux (systemd user unit)
 
 ```bash
-bun run autostart:install
+synthesis-console autostart install
 ```
 
 Writes a user service to `~/.config/systemd/user/synthesis-console.service`, enables it, and starts it. Logs go through journald:
@@ -301,7 +359,7 @@ The service runs while you're logged in. To keep it running across logouts, run 
 Uninstall:
 
 ```bash
-bun run autostart:uninstall
+synthesis-console autostart uninstall
 ```
 
 ### Windows
@@ -319,9 +377,15 @@ The install scripts are shell files in `scripts/` — readable and short. They:
 2. Resolve the repo root from the script's own location, so it works wherever you clone.
 3. Set up log paths (`~/Library/Logs/` on macOS, journald on Linux).
 4. Restart on crash with a throttle (no hot-loop if the server fails at startup).
-5. Are idempotent — re-running regenerates the unit file and reloads.
+5. Record the generated service bytes and permissions in an ownership receipt. Re-running updates an unchanged owned unit. Unknown, edited, or symlinked units are refused before service-manager calls.
 
-The server runs on its usual port (5555 by default, auto-incrementing if busy). Open `http://localhost:5555` any time.
+Uninstallation verifies that the owned service is stopped before removing its startup file. On macOS, run it in the logged-in user’s Aqua session; a different launchd context cannot prove that the login service is absent. On Linux, both inactive and disabled states must be verified. Failed or unrecognized manager responses preserve the startup file and ownership receipt. Edited bytes, permissions, and symlinks are refused before manager calls.
+
+Successful removal retains the exact startup file in a private `.synthesis-console-retired-*` directory beside its original location and its ownership receipt under `${XDG_STATE_HOME:-~/.local/state}/synthesis-console/autostart-retired-*`. These files are inactive recovery evidence. If retirement is interrupted, rerunning the uninstall command restores the owned files and retries verification. A failed systemd reload or receipt finalization restores the files when their paths remain free; foreign replacements are preserved, with the transaction journal naming the retained recovery files. Console configuration and logs are untouched.
+
+The service installer also requires a Python 3 interpreter with PyYAML for Python-backed controls; `SYNTHESIS_PYTHON_BIN` can select it. It fails before registering a service when that prerequisite is absent.
+
+The server runs on its usual loopback port (5555 by default, auto-incrementing if busy). Open `http://localhost:5555` any time.
 
 ## Demo Mode
 
@@ -404,8 +468,9 @@ Synthesis Console is the viewing layer. The methodology that produces the files 
 To use the complete system:
 
 ```bash
-# Install the skills (works with Claude Code, Cursor, Codex CLI, and 40+ other agents)
-npx skills add synthesisengineering/synthesis-skills --global --all --copy
+# Install and explicitly configure the full ecosystem
+npm install -g @synthesiswork/synthesis
+synthesis setup --profile full
 ```
 
 The skills create and maintain the files. The console renders them. Together they form a complete synthesis engineering workflow.
@@ -419,7 +484,7 @@ The skills create and maintain the files. The console renders them. Together the
 
 **Source scoping (v1.0.1+).** The source picker is the view scope for the whole app: content from deselected sources doesn't render anywhere — union lists AND source-scoped detail pages (`/plans/:source/:date`, `/projects/:source/:id`, `/prep/…`, `/ledger/…`). A direct URL or bookmark into a deselected source shows a "Source not active" page instead of the content. Selecting only the Demo source therefore makes every real source unreachable through the browser — safe for screen-sharing. For fully unattended demos, `bun run demo` remains the stronger, config-level isolation (real sources aren't even loaded).
 
-Synthesis Console is a **local-only tool** that binds to `localhost`. It reads your own files from your own filesystem.
+Synthesis Console binds explicitly to `127.0.0.1`. It reads your own files from your own filesystem. Stylesheets and demo assets are bundled, so ordinary local browsing works offline and makes no third-party asset requests. The Console has no telemetry. Configured Slack actions, synchronization, and explicitly invoked ecosystem audits may use network services; those are separate from viewing local files. It does not call a model provider itself.
 
 - **Path traversal:** URL parameters are sanitized to prevent directory traversal attacks
 - **XSS:** User-provided data is escaped in HTML output; interactive elements use event delegation instead of inline handlers
