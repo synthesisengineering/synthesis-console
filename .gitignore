@@ -3,3 +3,7 @@ dist/
 .DS_Store
 *.log
 .claude/
+
+.test-core-source/
+__pycache__/
+.pytest_cache/

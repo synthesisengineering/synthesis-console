@@ -17,7 +17,29 @@ set -euo pipefail
 UNIT_NAME="synthesis-console.service"
 UNIT_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
 UNIT_PATH="${UNIT_DIR}/${UNIT_NAME}"
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# Preserve terminal newlines long enough to reject them, rather than letting
+# command substitution silently select a different directory.
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && printf '%s.' "$PWD")"
+REPO_ROOT="${REPO_ROOT%.}"
+
+systemd_working_directory() {
+  local value="$1" tail="$1" backslashes=0
+  while [[ "${tail}" == *\\ ]]; do
+    tail="${tail%\\}"
+    backslashes=$((backslashes + 1))
+  done
+  # This directive has neither unquoting nor C-unescaping. The unit parser
+  # trims trailing whitespace and joins lines ending in an odd backslash.
+  if [[ "${value}" == *$'\n'* || "${value}" == *$'\r'* || "${value}" == *[[:space:]] ]] || \
+      (( backslashes % 2 )); then
+    echo "Error: Repository path cannot be represented exactly in systemd WorkingDirectory." >&2
+    return 1
+  fi
+  value="${value//%/%%}"
+  printf '%s\n' "${value}"
+}
+
+REPO_ROOT_SYSTEMD="$(systemd_working_directory "${REPO_ROOT}")"
 source "${REPO_ROOT}/scripts/python-runtime.sh"
 
 if [[ "$(uname -s)" != "Linux" ]]; then
@@ -51,14 +73,8 @@ if [[ -z "${BUN_BIN}" ]]; then
   exit 1
 fi
 
-PYTHON_BIN="$(find_synthesis_python || true)"
-if [[ -z "${PYTHON_BIN}" ]]; then
-  echo "Error: Could not find a Python 3 interpreter with PyYAML." >&2
-  echo "Install PyYAML or set SYNTHESIS_PYTHON_BIN to a compatible interpreter." >&2
-  exit 1
-fi
 
-if [[ ! -d "${REPO_ROOT}/node_modules" ]]; then
+if [[ ! -d "${REPO_ROOT}/node_modules" && ! -f "${REPO_ROOT}/app/index.js" ]]; then
   echo "Error: Dependencies not installed. Run 'bun install' in ${REPO_ROOT} first." >&2
   exit 1
 fi
@@ -81,6 +97,13 @@ systemd_escape_exec() {
   printf '%s\n' "${value}"
 }
 
+"${BUN_BIN}" "${REPO_ROOT}/scripts/service-ownership.ts" check "${UNIT_PATH}"
+
+# Foreign service state is refused before provisioning any runtime files.
+BOOTSTRAP_PYTHON="$(console_bootstrap_python)"
+PYTHON_BIN="$(provision_synthesis_python)"
+
+
 mkdir -p "${UNIT_DIR}"
 
 PRIVATE_CONTROL_PLANE_ENV=""
@@ -88,10 +111,11 @@ if [[ "${SYNTHESIS_PRIVATE_CONTROL_PLANE:-0}" == "1" ]]; then
   PRIVATE_CONTROL_PLANE_ENV="Environment=SYNTHESIS_PRIVATE_CONTROL_PLANE=1"
 fi
 
-REPO_ROOT_SYSTEMD="$(systemd_escape "${REPO_ROOT}")"
 BUN_BIN_SYSTEMD="$(systemd_escape_exec "${BUN_BIN}")"
 SERVICE_PATH_SYSTEMD="$(systemd_escape "$(dirname "${BUN_BIN}"):/usr/local/bin:/usr/bin:/bin")"
 PYTHON_BIN_SYSTEMD="$(systemd_escape "${PYTHON_BIN}")"
+BOOTSTRAP_PYTHON_SYSTEMD="$(systemd_escape "${BOOTSTRAP_PYTHON}")"
+DATA_HOME_SYSTEMD="$(systemd_escape "${XDG_DATA_HOME:-$HOME/.local/share}")"
 
 cat > "${UNIT_PATH}" <<UNIT
 [Unit]
@@ -101,17 +125,22 @@ After=network.target
 
 [Service]
 Type=simple
-WorkingDirectory="${REPO_ROOT_SYSTEMD}"
-ExecStart="${BUN_BIN_SYSTEMD}" run src/index.ts
+WorkingDirectory=${REPO_ROOT_SYSTEMD}
+ExecStart=/usr/bin/env "${BUN_BIN_SYSTEMD}" run scripts/console-cli.ts start
 Restart=on-failure
 RestartSec=10
 Environment="PATH=${SERVICE_PATH_SYSTEMD}"
 Environment="SYNTHESIS_PYTHON_BIN=${PYTHON_BIN_SYSTEMD}"
+Environment="SYNTHESIS_BOOTSTRAP_PYTHON=${BOOTSTRAP_PYTHON_SYSTEMD}"
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment="XDG_DATA_HOME=${DATA_HOME_SYSTEMD}"
 ${PRIVATE_CONTROL_PLANE_ENV}
 
 [Install]
 WantedBy=default.target
 UNIT
+
+"${BUN_BIN}" "${REPO_ROOT}/scripts/service-ownership.ts" record "${UNIT_PATH}"
 
 echo "Wrote unit: ${UNIT_PATH}"
 

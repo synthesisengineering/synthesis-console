@@ -42,14 +42,8 @@ if [[ -z "${BUN_BIN}" ]]; then
   exit 1
 fi
 
-PYTHON_BIN="$(find_synthesis_python || true)"
-if [[ -z "${PYTHON_BIN}" ]]; then
-  echo "Error: Could not find a Python 3 interpreter with PyYAML." >&2
-  echo "Install PyYAML or set SYNTHESIS_PYTHON_BIN to a compatible interpreter." >&2
-  exit 1
-fi
 
-if [[ ! -d "${REPO_ROOT}/node_modules" ]]; then
+if [[ ! -d "${REPO_ROOT}/node_modules" && ! -f "${REPO_ROOT}/app/index.js" ]]; then
   echo "Error: Dependencies not installed. Run 'bun install' in ${REPO_ROOT} first." >&2
   exit 1
 fi
@@ -62,6 +56,13 @@ xml_escape() {
   printf '%s\n' "${value}"
 }
 
+"${BUN_BIN}" "${REPO_ROOT}/scripts/service-ownership.ts" check "${PLIST_PATH}"
+
+# Foreign service state is refused before provisioning any runtime files.
+BOOTSTRAP_PYTHON="$(console_bootstrap_python)"
+PYTHON_BIN="$(provision_synthesis_python)"
+
+
 mkdir -p "${LOG_DIR}"
 mkdir -p "$(dirname "${PLIST_PATH}")"
 
@@ -71,7 +72,6 @@ if [[ "${SYNTHESIS_PRIVATE_CONTROL_PLANE:-0}" == "1" ]]; then
 fi
 
 LAUNCH_WRAPPER="${REPO_ROOT}/scripts/launch.sh"
-chmod +x "${LAUNCH_WRAPPER}" 2>/dev/null || true
 
 LAUNCH_WRAPPER_XML="$(xml_escape "${LAUNCH_WRAPPER}")"
 REPO_ROOT_XML="$(xml_escape "${REPO_ROOT}")"
@@ -80,6 +80,8 @@ STDERR_PATH_XML="$(xml_escape "${LOG_DIR}/stderr.log")"
 SERVICE_PATH_XML="$(xml_escape "$(dirname "${BUN_BIN}"):/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin")"
 BUN_BIN_XML="$(xml_escape "${BUN_BIN}")"
 PYTHON_BIN_XML="$(xml_escape "${PYTHON_BIN}")"
+BOOTSTRAP_PYTHON_XML="$(xml_escape "${BOOTSTRAP_PYTHON}")"
+DATA_HOME_XML="$(xml_escape "${XDG_DATA_HOME:-$HOME/.local/share}")"
 
 cat > "${PLIST_PATH}" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -117,6 +119,12 @@ cat > "${PLIST_PATH}" <<PLIST
         <string>${BUN_BIN_XML}</string>
         <key>SYNTHESIS_PYTHON_BIN</key>
         <string>${PYTHON_BIN_XML}</string>
+        <key>SYNTHESIS_BOOTSTRAP_PYTHON</key>
+        <string>${BOOTSTRAP_PYTHON_XML}</string>
+        <key>XDG_DATA_HOME</key>
+        <string>${DATA_HOME_XML}</string>
+        <key>PYTHONDONTWRITEBYTECODE</key>
+        <string>1</string>
 ${PRIVATE_CONTROL_PLANE_XML}
     </dict>
     <key>ProcessType</key>
@@ -124,6 +132,8 @@ ${PRIVATE_CONTROL_PLANE_XML}
 </dict>
 </plist>
 PLIST
+
+"${BUN_BIN}" "${REPO_ROOT}/scripts/service-ownership.ts" record "${PLIST_PATH}"
 
 echo "Wrote plist: ${PLIST_PATH}"
 
@@ -142,16 +152,18 @@ if launchctl print "${DOMAIN}/${LABEL}" >/dev/null 2>&1; then
   done
 fi
 
-if launchctl bootstrap "${DOMAIN}" "${PLIST_PATH}" 2>/tmp/synthesis-console-bootstrap.err; then
+BOOTSTRAP_ERR="$(mktemp)"
+trap 'rm -f "${BOOTSTRAP_ERR}"' EXIT
+if launchctl bootstrap "${DOMAIN}" "${PLIST_PATH}" 2>"${BOOTSTRAP_ERR}"; then
   echo "Loaded via launchctl bootstrap."
 else
-  ERR="$(cat /tmp/synthesis-console-bootstrap.err 2>/dev/null || true)"
+  ERR="$(cat "${BOOTSTRAP_ERR}" 2>/dev/null || true)"
   echo "launchctl bootstrap failed: ${ERR}" >&2
   echo "Falling back to legacy launchctl load..." >&2
   launchctl load -w "${PLIST_PATH}"
   echo "Loaded via launchctl load (legacy)."
 fi
-rm -f /tmp/synthesis-console-bootstrap.err
+rm -f "${BOOTSTRAP_ERR}"
 
 launchctl enable "${DOMAIN}/${LABEL}" 2>/dev/null || true
 
@@ -165,7 +177,8 @@ for _ in $(seq 1 25); do
   sleep 0.2
 done
 if [[ "${RUNNING}" -ne 1 ]]; then
-  echo "Warning: service did not reach running state. Check ${LOG_DIR}/stderr.log." >&2
+  echo "Error: service did not reach running state. Check ${LOG_DIR}/stderr.log." >&2
+  exit 1
 fi
 
 echo ""

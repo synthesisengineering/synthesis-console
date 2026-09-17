@@ -42,4 +42,4 @@ fi
 
 # Working directory is set by the LaunchAgent plist's WorkingDirectory key,
 # so cd is unnecessary. Exec replaces this shell with bun, no orphan process.
-exec "$BUN_BIN" run src/index.ts
+exec "$BUN_BIN" run scripts/console-cli.ts start

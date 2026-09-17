@@ -50,6 +50,7 @@ app.use("*", async (c, next) => {
 
 app.use("/style.css", serveStatic({ root: "./public" }));
 app.use("/favicon.svg", serveStatic({ root: "./public" }));
+app.use("/vendor/pico-2.1.1.min.css", serveStatic({ root: "./public" }));
 
 app.get("/", (c) => c.redirect("/projects"));
 
@@ -98,6 +99,15 @@ async function findAvailablePort(preferred: number): Promise<number> {
 const envPort = process.env.PORT ? parseInt(process.env.PORT, 10) : undefined;
 const preferredPort = envPort && Number.isFinite(envPort) ? envPort : config.port;
 const port = await findAvailablePort(preferredPort);
+if (!port) throw new Error("No available loopback port in the configured range.");
+
+// Bind before announcing readiness. Bun's automatic default-export listener
+// starts after module evaluation, which let consumers reach the URL too early.
+const server = Bun.serve({
+  hostname: "127.0.0.1",
+  port,
+  fetch: app.fetch,
+});
 
 if (port !== preferredPort) {
   console.log(`  Port ${preferredPort} is in use, using ${port} instead.\n`);
@@ -111,12 +121,7 @@ const defaultActiveNames = config.sources
 
 console.log(`  Synthesis Console v${pkg.version}${modeLabel}
   ========================
-  http://localhost:${port}
+  http://localhost:${server.port}
   Sources:          ${config.sources.map((s) => displayName(s)).join(", ")}
   Default-active:   ${defaultActiveNames}
 `);
-
-export default {
-  port,
-  fetch: app.fetch,
-};

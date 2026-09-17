@@ -10,7 +10,7 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { synthesisPythonBin } from "./python-runtime.js";
+import { synthesisPythonBin, synthesisPythonEnv } from "./python-runtime.js";
 import { resolveSkillScript } from "./skill-resolution.js";
 
 const SYNTHESIS_HOME =
@@ -394,7 +394,7 @@ export function runConformanceNow(): boolean {
     const child = execFile(
       invocation.executable,
       invocation.args,
-      { cwd: invocation.cwd, timeout: 15 * 60 * 1000 },
+      { cwd: invocation.cwd, env: synthesisPythonEnv(), timeout: 15 * 60 * 1000 },
       (error, _stdout, stderr) => {
         try {
           const report = freshConformanceReport(

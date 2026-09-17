@@ -8,7 +8,7 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { synthesisPythonBin } from "./python-runtime.js";
+import { synthesisPythonBin, synthesisPythonEnv } from "./python-runtime.js";
 
 /**
  * Repo-sync integration (synthesis-repo-guard v2).
@@ -211,7 +211,7 @@ function runScript(
     execFile(
       synthesisPythonBin(),
       [script, ...args],
-      { timeout: timeoutMs, maxBuffer: 8 * 1024 * 1024 },
+      { env: synthesisPythonEnv(), timeout: timeoutMs, maxBuffer: 8 * 1024 * 1024 },
       (err: any, stdout: any, stderr: any) => {
         resolve({
           code: err ? (typeof err.code === "number" ? err.code : 1) : 0,
@@ -307,7 +307,7 @@ export function fireProducerCheckpoint(filePath: string): void {
     const child = execFile(
       synthesisPythonBin(),
       [script, "--repo", filePath, "--now", "--quiet"],
-      { timeout: 120_000 },
+      { env: synthesisPythonEnv(), timeout: 120_000 },
       () => {
         /* outcome recorded in checkpoint-state.json */
       }

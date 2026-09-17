@@ -7,8 +7,14 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "outDir": "./dist",
-    "rootDir": "./src",
-    "types": ["bun-types"]
+    "rootDir": ".",
+    "types": [
+      "bun-types"
+    ]
   },
-  "include": ["src/**/*.ts"]
+  "include": [
+    "src/**/*.ts",
+    "scripts/console-cli.ts",
+    "scripts/service-ownership.ts"
+  ]
 }
