@@ -50,9 +50,21 @@ def distribution(tmp_path_factory):
 
 def environment(home):
     home.mkdir()
-    env=dict(os.environ,HOME=str(home),SYNTHESIS_HOME=str(home),XDG_STATE_HOME=str(home/'.local/state'),XDG_DATA_HOME=str(home/'.local/share'),XDG_CACHE_HOME=str(home/'.cache'))
+    env=dict(os.environ,HOME=str(home),SYNTHESIS_HOME=str(home),XDG_CONFIG_HOME=str(home/'.config'),XDG_STATE_HOME=str(home/'.local/state'),XDG_DATA_HOME=str(home/'.local/share'),XDG_CACHE_HOME=str(home/'.cache'))
     env.update(npm_config_cache=str(home/'npm-cache'),npm_config_userconfig=str(home/'.npmrc'),BUN_INSTALL=str(home/'bun'),BUN_INSTALL_CACHE_DIR=str(home/'bun-cache'))
     return env
+
+def test_consumer_environment_owns_each_xdg_root(tmp_path,monkeypatch):
+    foreign=tmp_path/'foreign';foreign.mkdir()
+    sentinel=foreign/'retained';sentinel.write_text('outside the fixture home')
+    roots={'XDG_CONFIG_HOME':'.config','XDG_STATE_HOME':'.local/state',
+           'XDG_DATA_HOME':'.local/share','XDG_CACHE_HOME':'.cache'}
+    for variable in roots:
+        monkeypatch.setenv(variable,str(foreign))
+    home=tmp_path/'home';env=environment(home)
+    for variable,relative in roots.items():
+        assert env[variable]==str(home/relative),variable+' leaked into the consumer'
+    assert sentinel.read_text()=='outside the fixture home'
 
 def test_package_is_inert_with_bundled_dependencies(distribution):
     root,record=distribution;metadata=json.loads((root/'npm/package.json').read_text())
