@@ -62,6 +62,23 @@ def test_package_is_inert_with_bundled_dependencies(distribution):
     assert record['archive']['sha256'] in (root/'synthesis-console.rb').read_text()
     assert record['archive']['sha256'] in (root/'install.sh').read_text()
 
+def test_homebrew_uses_the_official_bun_formula_and_runtime(distribution):
+    root,record=distribution
+    formula=(root/'synthesis-console.rb').read_text()
+    # Inspect actual generated artifact bytes, not a hand-written sample.
+    # Qualified dependency identity avoids short-name lookup in a fresh brew.
+    assert 'depends_on "oven-sh/bun/bun"' in formula
+    assert 'depends_on "bun"' not in formula and 'Formula["bun"]' not in formula
+    # The installed launcher must resolve the same dependency even when a
+    # different bun precedes Homebrew on the user's incoming PATH.
+    assert 'PATH: "#{Formula["oven-sh/bun/bun"].opt_bin}:$PATH"' in formula
+    assert 'SYNTHESIS_BOOTSTRAP_PYTHON: Formula["python@3.12"].opt_bin/"python3.12"' in formula
+    assert record['archive']['sha256'] in formula
+    ruby=shutil.which('ruby')
+    if ruby:
+        parsed=subprocess.run([ruby,'-c',str(root/'synthesis-console.rb')],capture_output=True,text=True)
+        assert parsed.returncode==0,parsed.stdout+parsed.stderr
+
 @pytest.mark.parametrize('manager',['npm','bun','archive'])
 def test_actual_consumers_help_setup_optout_and_integrity(distribution,tmp_path,manager):
     root,record=distribution; home=tmp_path/'home';env=environment(home)

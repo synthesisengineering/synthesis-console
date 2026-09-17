@@ -1,5 +1,7 @@
 import { expect, test } from "bun:test";
 import {
+  copyFileSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -77,6 +79,7 @@ function installFixture(platform: "Darwin" | "Linux", privateMode: boolean): str
       env: { ...process.env, SYSTEMD_LOG_LEVEL: "warning" },
       encoding: "utf-8",
     });
+    if (process.platform === "linux") expect(verify.error).toBeUndefined();
     if (!verify.error) {
       expect(verify.status, `${verify.stdout}\n${verify.stderr}`).toBe(0);
     }
@@ -93,6 +96,91 @@ test("autostart installers persist private conformance mode only when opted in",
     );
   }
 });
+
+function linuxRepositoryFixture(name: string, check: (fixture: {
+  root: string;
+  unit: string;
+  receipt: string;
+  calls: string;
+  install: () => ReturnType<typeof spawnSync>;
+}) => void): void {
+  const temporary = mkdtempSync(join(realpathSync(tmpdir()), "console-linux-path-"));
+  try {
+    const root = join(temporary, name);
+    const home = join(temporary, "home");
+    const fakeBin = join(temporary, "bin");
+    mkdirSync(join(root, "scripts"), { recursive: true });
+    mkdirSync(join(root, "node_modules"));
+    mkdirSync(home);
+    mkdirSync(fakeBin);
+    for (const file of ["install-autostart-linux.sh", "python-runtime.sh"]) {
+      copyFileSync(join(repoRoot, "scripts", file), join(root, "scripts", file));
+    }
+    executable(join(fakeBin, "uname"), "#!/bin/sh\nprintf 'Linux\\n'\n");
+    executable(join(fakeBin, "python3"), "#!/bin/sh\nprintf '%s\\n' \"$0\"\n");
+    for (const command of ["bun", "systemctl"]) {
+      executable(join(fakeBin, command), "#!/bin/sh\nprintf 'called\\n' >> \"$HOME/calls\"\n");
+    }
+    check({
+      root,
+      unit: join(home, ".config/systemd/user/synthesis-console.service"),
+      receipt: join(home, ".local/state/synthesis-console/autostart.json"),
+      calls: join(home, "calls"),
+      install: () => spawnSync("bash", [join(root, "scripts/install-autostart-linux.sh")], {
+        cwd: root,
+        env: { HOME: home, PATH: `${fakeBin}:/usr/bin:/bin` },
+        encoding: "utf-8",
+      }),
+    });
+  } finally {
+    rmSync(temporary, { recursive: true, force: true });
+  }
+}
+
+test("Linux WorkingDirectory preserves literal repository path characters", () => {
+  for (const name of ['checkout & "\' %n %% $HOME \\segment\tend', "checkout-\\\\"]) {
+    linuxRepositoryFixture(name, ({ root, unit, install }) => {
+      const result = install();
+      expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(0);
+      const content = readFileSync(unit, "utf-8");
+      expect(content.split("\n").find(line => line.startsWith("WorkingDirectory=")))
+        .toBe(`WorkingDirectory=${root.replaceAll("%", "%%")}`);
+      const verify = spawnSync("systemd-analyze", ["verify", unit], {
+        env: { ...process.env, SYSTEMD_LOG_LEVEL: "warning" },
+        encoding: "utf-8",
+      });
+      if (process.platform === "linux") expect(verify.error).toBeUndefined();
+      if (!verify.error) expect(verify.status, `${verify.stdout}\n${verify.stderr}`).toBe(0);
+    });
+  }
+});
+
+for (const [label, name] of [
+  ["embedded newline", "checkout\nchild"],
+  ["terminal newline", "checkout\n"],
+  ["embedded carriage return", "checkout\rchild"],
+  ["terminal carriage return", "checkout\r"],
+  ["terminal space", "checkout "],
+  ["terminal tab", "checkout\t"],
+  ["terminal vertical tab", "checkout\v"],
+  ["terminal form feed", "checkout\f"],
+  ["terminal continuation backslash", "checkout\\"],
+]) {
+  test(`Linux refuses a repository path with ${label} before changing service state`, () => {
+    linuxRepositoryFixture(name!, ({ unit, receipt, calls, install }) => {
+      mkdirSync(resolve(unit, ".."), { recursive: true });
+      mkdirSync(resolve(receipt, ".."), { recursive: true });
+      writeFileSync(unit, "retained unit\n");
+      writeFileSync(receipt, "retained ownership receipt\n");
+      const result = install();
+      expect(result.status).not.toBe(0);
+      expect(String(result.stderr)).toContain("cannot be represented exactly in systemd WorkingDirectory");
+      expect(readFileSync(unit, "utf-8")).toBe("retained unit\n");
+      expect(readFileSync(receipt, "utf-8")).toBe("retained ownership receipt\n");
+      expect(existsSync(calls)).toBe(false);
+    });
+  });
+}
 
 test("Python selection fails closed for an incompatible explicit interpreter", () => {
   const root = mkdtempSync(join(tmpdir(), "synthesis-console-python-"));

@@ -17,7 +17,29 @@ set -euo pipefail
 UNIT_NAME="synthesis-console.service"
 UNIT_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
 UNIT_PATH="${UNIT_DIR}/${UNIT_NAME}"
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# Preserve terminal newlines long enough to reject them, rather than letting
+# command substitution silently select a different directory.
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && printf '%s.' "$PWD")"
+REPO_ROOT="${REPO_ROOT%.}"
+
+systemd_working_directory() {
+  local value="$1" tail="$1" backslashes=0
+  while [[ "${tail}" == *\\ ]]; do
+    tail="${tail%\\}"
+    backslashes=$((backslashes + 1))
+  done
+  # This directive has neither unquoting nor C-unescaping. The unit parser
+  # trims trailing whitespace and joins lines ending in an odd backslash.
+  if [[ "${value}" == *$'\n'* || "${value}" == *$'\r'* || "${value}" == *[[:space:]] ]] || \
+      (( backslashes % 2 )); then
+    echo "Error: Repository path cannot be represented exactly in systemd WorkingDirectory." >&2
+    return 1
+  fi
+  value="${value//%/%%}"
+  printf '%s\n' "${value}"
+}
+
+REPO_ROOT_SYSTEMD="$(systemd_working_directory "${REPO_ROOT}")"
 source "${REPO_ROOT}/scripts/python-runtime.sh"
 
 if [[ "$(uname -s)" != "Linux" ]]; then
@@ -90,7 +112,6 @@ if [[ "${SYNTHESIS_PRIVATE_CONTROL_PLANE:-0}" == "1" ]]; then
   PRIVATE_CONTROL_PLANE_ENV="Environment=SYNTHESIS_PRIVATE_CONTROL_PLANE=1"
 fi
 
-REPO_ROOT_SYSTEMD="$(systemd_escape "${REPO_ROOT}")"
 BUN_BIN_SYSTEMD="$(systemd_escape_exec "${BUN_BIN}")"
 SERVICE_PATH_SYSTEMD="$(systemd_escape "$(dirname "${BUN_BIN}"):/usr/local/bin:/usr/bin:/bin")"
 PYTHON_BIN_SYSTEMD="$(systemd_escape "${PYTHON_BIN}")"
@@ -103,7 +124,7 @@ After=network.target
 
 [Service]
 Type=simple
-WorkingDirectory="${REPO_ROOT_SYSTEMD}"
+WorkingDirectory=${REPO_ROOT_SYSTEMD}
 ExecStart="${BUN_BIN_SYSTEMD}" run scripts/console-cli.ts start
 Restart=on-failure
 RestartSec=10

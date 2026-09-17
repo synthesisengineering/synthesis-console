@@ -97,12 +97,13 @@ def _build(source, output, core, provenance, environment):
   url "%s"
   sha256 "%s"
   license "Apache-2.0"
-  depends_on "bun"
+  depends_on "oven-sh/bun/bun"
   depends_on "git"
   depends_on "python@3.12"
   def install
     libexec.install Dir["*"]
     (bin/"synthesis-console").write_env_script libexec/"bin/synthesis-console",
+      PATH: "#{Formula["oven-sh/bun/bun"].opt_bin}:$PATH",
       SYNTHESIS_BOOTSTRAP_PYTHON: Formula["python@3.12"].opt_bin/"python3.12"
   end
   test do
