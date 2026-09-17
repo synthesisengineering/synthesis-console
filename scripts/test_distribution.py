@@ -104,9 +104,21 @@ def test_actual_consumers_help_setup_optout_and_integrity(distribution,tmp_path,
         command=['bun','add','-g','--ignore-scripts',str(archive)] if manager=='bun' else ['npm','install','-g','--prefix',str(prefix),'--ignore-scripts','--no-audit','--no-fund',str(archive)]
         subprocess.run(command,env=env,capture_output=True,check=True)
         binary=prefix/'bin/synthesis-console';package=binary.resolve().parent.parent
+    bare=tmp_path/'bare-python'
+    subprocess.run([sys.executable,'-I','-B','-m','venv','--without-pip',str(bare)],check=True)
+    interpreter=bare/'bin/python3'
+    assert subprocess.run([str(interpreter),'-I','-B','-c','import yaml'],capture_output=True).returncode!=0
+    env['SYNTHESIS_BOOTSTRAP_PYTHON']=str(interpreter);env.pop('SYNTHESIS_PYTHON_BIN',None)
     for args in [['--version'],['--help'],['synthesis','--help'],['setup','--no-dormant-core']]:
         r=subprocess.run([str(binary),*args],cwd=home,env=env,capture_output=True,text=True)
         assert r.returncode==0,r.stdout+r.stderr
+    resolved=subprocess.run(['bash',str(package/'scripts/python-runtime.sh'),'resolve'],env=env,capture_output=True,text=True)
+    assert resolved.returncode==0,resolved.stderr
+    ready=Path(resolved.stdout.strip())
+    checked=subprocess.run([str(ready),'-I','-B','-c','import yaml;print(yaml.__version__);print(yaml.safe_load("ready: true")["ready"])'],env=env,capture_output=True,text=True)
+    assert checked.returncode==0 and checked.stdout=='6.0.3\nTrue\n',checked.stderr
+    assert record['python_dependency']['version']=='6.0.3'
+    assert not (bare/'lib/python3.12/site-packages/yaml').exists()
     status=subprocess.run([str(binary),'synthesis','status','--json'],cwd=home,env=env,capture_output=True,text=True)
     assert status.returncode==2,status.stdout+status.stderr
     assert 'not configured' in (status.stdout+status.stderr).lower()
@@ -181,22 +193,30 @@ def test_packaged_autostart_requires_owned_unit_before_manager_calls(distributio
     log=home/'manager.log'
     def executable(name,body):
         path=fake/name;path.write_text('#!/bin/sh\n'+body);path.chmod(0o755)
-    executable('python3','printf "%s\\n" "$0"\n') # Isolates service dispatch from Python dependency provisioning.
+    # Use a real fresh interpreter: package service installation must provision YAML.
+    bare=tmp_path/'bare-python';subprocess.run([sys.executable,'-I','-B','-m','venv','--without-pip',str(bare)],check=True)
     if sys.platform=='darwin':
         target=home/'Library/LaunchAgents/org.synthesisengineering.console.plist'
         executable('launchctl','echo "$*" >> "$HOME/manager.log"\ncase "$1" in\nmanageruid) id -u;;\nmanagername) echo Aqua;;\nlist) printf "PID\\tStatus\\tLabel\\n"; test ! -f "$HOME/loaded" || printf "4321\\t0\\torg.synthesisengineering.console\\n";;\nprint) test -f "$HOME/loaded" && { echo " state = running"; exit 0; }; exit 1;;\nbootstrap) touch "$HOME/loaded";;\nbootout) rm -f "$HOME/loaded";;\nesac\nexit 0\n')
     else:
         target=home/'.config/systemd/user/synthesis-console.service'
         executable('systemctl','echo "$*" >> "$HOME/manager.log"\ncase "$*" in\n*show*) echo LoadState=loaded; if test -f "$HOME/loaded"; then printf "ActiveState=active\\nUnitFileState=enabled\\nMainPID=4321\\nControlPID=0\\n"; else printf "ActiveState=inactive\\nUnitFileState=disabled\\nMainPID=0\\nControlPID=0\\n"; fi;;\n*enable*) touch "$HOME/loaded";;\n*disable*) rm -f "$HOME/loaded";;\nesac\nexit 0\n')
-    env.update(PATH=str(fake)+os.pathsep+env['PATH'],SYNTHESIS_PYTHON_BIN=str(fake/'python3'))
+    env.update(PATH=str(fake)+os.pathsep+env['PATH'],SYNTHESIS_BOOTSTRAP_PYTHON=str(bare/'bin/python3'))
+    env.pop('SYNTHESIS_PYTHON_BIN',None)
     binary=root/'npm/bin/synthesis-console'
     def command(action):return subprocess.run([str(binary),'autostart',action],cwd=home,env=env,capture_output=True,text=True)
     target.parent.mkdir(parents=True);target.write_text('foreign unit')
     refused=command('install');assert refused.returncode!=0,refused.stdout+refused.stderr
     assert target.read_text()=='foreign unit' and not log.exists()
+    assert not (home/'.local/share/synthesis-console/python-runtime').exists()
     target.unlink()
     installed=command('install');assert installed.returncode==0,installed.stdout+installed.stderr
     owned=target.read_bytes();manager_actions=log.read_bytes()
+    resolved=subprocess.run(['bash',str(root/'npm/scripts/python-runtime.sh'),'resolve'],env=env,capture_output=True,text=True)
+    assert resolved.returncode==0,resolved.stderr
+    assert resolved.stdout.strip() in owned.decode()
+    probe=subprocess.run([resolved.stdout.strip(),'-I','-B','-c','import yaml;print(yaml.__version__)'],capture_output=True,text=True)
+    assert probe.returncode==0 and probe.stdout=='6.0.3\n',probe.stderr
     target.write_text('edited unit')
     assert command('uninstall').returncode!=0
     assert target.read_text()=='edited unit' and log.read_bytes()==manager_actions
@@ -272,3 +292,49 @@ class CurlCancellationTests(unittest.TestCase):
                     result=subprocess.run(command,env=env,capture_output=True,timeout=5)
                     self.assertEqual(result.returncode,expected,result.stderr.decode())
                     self.assertFalse(list(prefix.glob('.synthesis-console-download-*')))
+
+
+def test_generated_dashboard_python_action_uses_verified_owned_runtime(distribution,tmp_path):
+    """Exercise the built app's real HTTP-to-Python dispatch without live agents."""
+    import re,selectors,signal,time,urllib.request
+    root,record=distribution;home=tmp_path/'home';env=environment(home)
+    bare=tmp_path/'bare';subprocess.run([sys.executable,'-I','-B','-m','venv','--without-pip',str(bare)],check=True)
+    env['SYNTHESIS_BOOTSTRAP_PYTHON']=str(bare/'bin/python3');env.pop('SYNTHESIS_PYTHON_BIN',None)
+    env.pop('SYNTHESIS_PRIVATE_CONTROL_PLANE',None)
+    binary=root/'npm/bin/synthesis-console'
+    setup=subprocess.run([str(binary),'setup','--no-dormant-core'],env=env,capture_output=True,text=True)
+    assert setup.returncode==0,setup.stderr
+    resolved=subprocess.run(['bash',str(root/'npm/scripts/python-runtime.sh'),'resolve'],env=env,capture_output=True,text=True)
+    assert resolved.returncode==0,resolved.stderr
+    expected=resolved.stdout.strip()
+    source=tmp_path/'source';source.mkdir();subprocess.run(['git','init','-q',str(source)],check=True)
+    (source/'.codex-plugin').mkdir();(source/'.codex-plugin/plugin.json').write_text('{}')
+    skill=source/'skills/synthesis-agent-conformance';(skill/'scripts').mkdir(parents=True)
+    # The checker is a labelled fixture; this proves dispatch, not ecosystem conformance.
+    (skill/'scripts/conformance.py').write_text('import json,os,sys,yaml\nfrom datetime import datetime,timezone\nfrom pathlib import Path\n'
+        'Path(os.environ["HOME"],"fixture-dispatch.json").write_text(json.dumps({"python":sys.executable,"yaml":yaml.__version__,"parsed":yaml.safe_load("ready: true")["ready"]}))\n'
+        'report={"ok":True,"status":"PASS","checked_at":datetime.now(timezone.utc).isoformat(),"checks":[{"name":"fixture.dispatch","ok":True,"detail":"disposable fixture only","required":True,"plane":"fixture","status":"PASS"}]}\n'
+        'Path(sys.argv[sys.argv.index("--report-file")+1]).write_text(json.dumps(report))\n')
+    (home/'active-project.json').write_text(json.dumps({'project':str(source),'worktree':str(source)}))
+    foreign=home/'foreign-import';foreign.mkdir();(foreign/'yaml.py').write_text('raise RuntimeError("wrong dependency")')
+    env.update(PORT='19812',SYNTHESIS_CONFORMANCE_SOURCE_ROOT=str(source),SYNTHESIS_AGENT_CONFORMANCE_DIR=str(skill),PYTHONPATH=str(foreign))
+    process=subprocess.Popen([str(binary),'demo'],cwd=home,env=env,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,start_new_session=True)
+    try:
+        selector=selectors.DefaultSelector();selector.register(process.stdout,selectors.EVENT_READ)
+        output='';match=None;deadline=time.monotonic()+10
+        while time.monotonic()<deadline:
+            if selector.select(timeout=.2):output+=os.read(process.stdout.fileno(),65536).decode()
+            match=re.search(r'http://localhost:(\d+)',output)
+            if match:break
+        assert match,output
+        address='http://127.0.0.1:'+match[1]
+        with urllib.request.urlopen(urllib.request.Request(address+'/api/conformance/audit',method='POST'),timeout=5) as response:
+            assert json.load(response)['ok'] is True
+        marker=home/'fixture-dispatch.json';deadline=time.monotonic()+5
+        while not marker.exists() and time.monotonic()<deadline:time.sleep(.02)
+        assert marker.exists()
+        assert json.loads(marker.read_text())=={'python':expected,'yaml':'6.0.3','parsed':True}
+        unchanged=subprocess.run(['bash',str(root/'npm/scripts/python-runtime.sh'),'resolve'],env=env,capture_output=True,text=True)
+        assert unchanged.returncode==0 and unchanged.stdout==resolved.stdout,unchanged.stderr
+    finally:
+        os.killpg(process.pid,signal.SIGTERM);process.communicate(timeout=5)

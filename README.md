@@ -49,12 +49,26 @@ SYNTHESIS_PRIVATE_CONTROL_PLANE=1 synthesis-console autostart install
 
 The macOS LaunchAgent and Linux systemd installer include the opt-in only when
 the value is exactly `1`; ordinary public installations remain unchanged.
-Both installers also select and persist the exact Python interpreter used by
-the Console's Python-backed controls after verifying Python 3 and PyYAML. Set
-`SYNTHESIS_PYTHON_BIN` to require a specific compatible interpreter; an
-invalid explicit interpreter makes installation fail instead of leaving the
-dashboard to report cascading false failures. Generated LaunchAgent and
-systemd values are escaped for their respective service-manager formats.
+Console setup and autostart installation prepare a private Python runtime with the
+bundled, MIT-licensed pure Python PyYAML 6.0.3 dependency. No global pip install,
+compiler, or dependency download is needed. The runtime lives under
+`${XDG_DATA_HOME:-~/.local/share}/synthesis-console/python-runtime`; its release
+manifest, interpreter, configuration, files, and permissions are verified before
+Python-backed controls use it. Modified or foreign runtime files are preserved and
+reported, rather than overwritten. Explicit setup with a different base interpreter
+builds a verified new generation and retains the previous generation and receipts.
+
+Set `SYNTHESIS_BOOTSTRAP_PYTHON` to select an installed Python 3.9+ base interpreter.
+The service installer persists the resulting exact `SYNTHESIS_PYTHON_BIN`, base
+interpreter, and data path. Foreground controls resolve that same verified runtime;
+an unrelated `SYNTHESIS_PYTHON_BIN` cannot replace it. Services retain their own
+ownership checks, and refuse unknown or edited service files before preparing a
+runtime. Generated LaunchAgent and systemd values use their respective formats.
+
+`setup --no-dormant-core` still prepares Console's own Python dependency, while
+skipping shared core staging. Package installation, help, and ordinary dashboard
+startup do not provision Python, register services, or activate shared hooks.
+
 
 ## Screenshots
 
@@ -383,7 +397,7 @@ Uninstallation verifies that the owned service is stopped before removing its st
 
 Successful removal retains the exact startup file in a private `.synthesis-console-retired-*` directory beside its original location and its ownership receipt under `${XDG_STATE_HOME:-~/.local/state}/synthesis-console/autostart-retired-*`. These files are inactive recovery evidence. If retirement is interrupted, rerunning the uninstall command restores the owned files and retries verification. A failed systemd reload or receipt finalization restores the files when their paths remain free; foreign replacements are preserved, with the transaction journal naming the retained recovery files. Console configuration and logs are untouched.
 
-The service installer also requires a Python 3 interpreter with PyYAML for Python-backed controls; `SYNTHESIS_PYTHON_BIN` can select it. It fails before registering a service when that prerequisite is absent.
+The service installer prepares and verifies the same private Python runtime as `synthesis-console setup`. A missing Python 3.9+ base or altered dependency payload fails before service registration; no global Python packages are changed.
 
 The server runs on its usual loopback port (5555 by default, auto-incrementing if busy). Open `http://localhost:5555` any time.
 

@@ -11,14 +11,15 @@ if (runtime[0]<1 || (runtime[0]===1 && (runtime[1]<3 || (runtime[1]===3 && runti
 const help=`Synthesis Console ${pkg.version}
 Usage: synthesis-console COMMAND
   --help | --version                  Read package information
-  setup [--no-dormant-core]            Stage optional inert core; no service or hooks
+  setup [--no-dormant-core]            Prepare isolated Python and optional inert core
   synthesis <activate|deactivate|status|doctor|repair|update> [args]\n                                      Explicit packaged-core lifecycle access
   start [--demo]                      Run on loopback in the foreground
   demo                                Run with bundled sample data only
   autostart install | uninstall        Explicit login service registration/removal
 
 Bun 1.3.13+ is required. Default core setup needs Python3.12–3.14 and Git.
-Opt-out setup needs Python3.9+. Package installation never runs setup.
+Opt-out setup needs Python3.9+. Bundled PyYAML needs no pip or compiler.
+Package installation never runs setup; setup never enables services or hooks.
 Config: ~/.synthesis/console.yaml; setup preserves it. No telemetry.
 `;
 if(command==="--help"||command==="-h") { console.log(help); process.exit(0); }
@@ -70,10 +71,19 @@ if(command==="setup") {
  const platform=process.platform==="darwin"?"macos":process.platform==="linux"?"linux":fail("Autostart supports macOS and Linux only.");
  target=["bash",join(root,`scripts/${args[0]}-autostart-${platform}.sh`)];
 } else fail("Unknown command. Run synthesis-console --help.");
+async function dispatch(target: string[]): Promise<void> {
 const child=Bun.spawn(target,{cwd:command==="synthesis"?process.cwd():root,env:process.env,stdin:"inherit",stdout:"inherit",stderr:"inherit"});
-const forward = new Map((["SIGTERM","SIGINT","SIGHUP"] as const).map(signal => [signal, () => child.kill(signal)]));
+let cancelled: NodeJS.Signals | null = null;
+const forward = new Map((["SIGTERM","SIGINT","SIGHUP"] as const).map(signal => [signal, () => { cancelled ??= signal; child.kill(signal); }]));
 for(const [signal,handler] of forward) process.on(signal,handler);
 const exitCode=await child.exited;
 for(const [signal,handler] of forward) process.off(signal,handler);
-if(child.signalCode) process.kill(process.pid,child.signalCode);
-else process.exit(exitCode);
+if(cancelled || child.signalCode) {
+ process.kill(process.pid,cancelled || child.signalCode!);
+ await new Promise<never>(() => {});
+}
+else if(exitCode) process.exit(exitCode);
+}
+await dispatch(target);
+if(command === "setup") await dispatch(["bash", join(root,"scripts/python-runtime.sh"), "setup"]);
+process.exit(0);

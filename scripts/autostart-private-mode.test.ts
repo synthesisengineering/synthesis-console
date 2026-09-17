@@ -201,7 +201,7 @@ test("Python selection fails closed for an incompatible explicit interpreter", (
   );
   rmSync(root, { recursive: true, force: true });
   expect(result.status).not.toBe(0);
-  expect(result.stderr).toContain("does not name an executable Python 3 with PyYAML");
+  expect(result.stderr).toContain("does not name an executable Python 3.9+");
 });
 
 test("Python selection persists an absolute path", () => {
@@ -232,7 +232,6 @@ test("Python selection persists an absolute path", () => {
 
 test("Python selection probe executes successfully in a real Python runtime", () => {
   const root = mkdtempSync(join(tmpdir(), "synthesis-console-real-python-"));
-  writeFileSync(join(root, "yaml.py"), "# Hermetic import stub for the runtime probe.\n");
   const hermeticPath = "/usr/bin:/bin";
   const located = spawnSync(
     "python3",
@@ -252,7 +251,6 @@ test("Python selection probe executes successfully in a real Python runtime", ()
       env: {
         HOME: root,
         PATH: hermeticPath,
-        PYTHONPATH: root,
         SYNTHESIS_PYTHON_BIN: candidate,
       },
       encoding: "utf-8",

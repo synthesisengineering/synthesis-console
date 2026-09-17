@@ -89,3 +89,33 @@ def test_invalid_core_files_never_execute(bridge,change):
         inventory.rename(outside);inventory.symlink_to(outside)
     r=run(['synthesis','doctor']);assert r.returncode==2
     assert not list(home.iterdir())
+
+@pytest.mark.parametrize('phase',['core','python'])
+@pytest.mark.parametrize('number',[signal.SIGINT,signal.SIGTERM,signal.SIGHUP])
+def test_setup_cancellation_never_advances_after_graceful_child_exit(bridge,phase,number):
+    home,package,run=bridge
+    worker=package/'worker.py'
+    worker.write_text('import os,signal,time\nfrom pathlib import Path\n'
+        'home=Path(os.environ["HOME"])\n'
+        'def stop(number,frame):\n (home/"stopped").write_text(str(number))\n raise SystemExit(0)\n'
+        'for number in (1,2,15): signal.signal(number,stop)\n'
+        '(home/"ready").write_text(str(os.getpid()))\ntime.sleep(30)\n')
+    core=package/'synthesis-core/bin/synthesis'
+    core.write_text('#!'+sys.executable+'\n'+(worker.read_text() if phase=='core' else 'raise SystemExit(0)\n'));core.chmod(0o755)
+    (package/'core-files.json').write_text(json.dumps({'bin/synthesis':{'sha256':hashlib.sha256(core.read_bytes()).hexdigest(),'mode':0o755}}))
+    import shlex
+    (package/'scripts/python-runtime.sh').write_text('#!/bin/sh\ntouch "$HOME/python-started"\nexec '+shlex.quote(sys.executable)+' '+shlex.quote(str(worker))+'\n')
+    process=subprocess.Popen(['bun',str(package/'scripts/console-cli.ts'),'setup','--no-dormant-core'],cwd=home,env=dict(os.environ,HOME=str(home)),stdout=subprocess.PIPE,stderr=subprocess.PIPE,start_new_session=True)
+    try:
+        deadline=time.monotonic()+5
+        while not (home/'ready').exists() and time.monotonic()<deadline:time.sleep(.02)
+        assert (home/'ready').exists();child=int((home/'ready').read_text())
+        process.send_signal(number);process.communicate(timeout=5)
+        assert process.returncode==-number
+        assert (home/'stopped').read_text()==str(number)
+        assert (home/'python-started').exists()==(phase=='python')
+        with pytest.raises(ProcessLookupError):os.kill(child,0)
+    finally:
+        try:os.killpg(process.pid,signal.SIGKILL)
+        except ProcessLookupError:pass
+        process.communicate(timeout=5)

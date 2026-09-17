@@ -73,12 +73,6 @@ if [[ -z "${BUN_BIN}" ]]; then
   exit 1
 fi
 
-PYTHON_BIN="$(find_synthesis_python || true)"
-if [[ -z "${PYTHON_BIN}" ]]; then
-  echo "Error: Could not find a Python 3 interpreter with PyYAML." >&2
-  echo "Install PyYAML or set SYNTHESIS_PYTHON_BIN to a compatible interpreter." >&2
-  exit 1
-fi
 
 if [[ ! -d "${REPO_ROOT}/node_modules" && ! -f "${REPO_ROOT}/app/index.js" ]]; then
   echo "Error: Dependencies not installed. Run 'bun install' in ${REPO_ROOT} first." >&2
@@ -105,6 +99,11 @@ systemd_escape_exec() {
 
 "${BUN_BIN}" "${REPO_ROOT}/scripts/service-ownership.ts" check "${UNIT_PATH}"
 
+# Foreign service state is refused before provisioning any runtime files.
+BOOTSTRAP_PYTHON="$(console_bootstrap_python)"
+PYTHON_BIN="$(provision_synthesis_python)"
+
+
 mkdir -p "${UNIT_DIR}"
 
 PRIVATE_CONTROL_PLANE_ENV=""
@@ -115,6 +114,8 @@ fi
 BUN_BIN_SYSTEMD="$(systemd_escape_exec "${BUN_BIN}")"
 SERVICE_PATH_SYSTEMD="$(systemd_escape "$(dirname "${BUN_BIN}"):/usr/local/bin:/usr/bin:/bin")"
 PYTHON_BIN_SYSTEMD="$(systemd_escape "${PYTHON_BIN}")"
+BOOTSTRAP_PYTHON_SYSTEMD="$(systemd_escape "${BOOTSTRAP_PYTHON}")"
+DATA_HOME_SYSTEMD="$(systemd_escape "${XDG_DATA_HOME:-$HOME/.local/share}")"
 
 cat > "${UNIT_PATH}" <<UNIT
 [Unit]
@@ -130,6 +131,9 @@ Restart=on-failure
 RestartSec=10
 Environment="PATH=${SERVICE_PATH_SYSTEMD}"
 Environment="SYNTHESIS_PYTHON_BIN=${PYTHON_BIN_SYSTEMD}"
+Environment="SYNTHESIS_BOOTSTRAP_PYTHON=${BOOTSTRAP_PYTHON_SYSTEMD}"
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment="XDG_DATA_HOME=${DATA_HOME_SYSTEMD}"
 ${PRIVATE_CONTROL_PLANE_ENV}
 
 [Install]

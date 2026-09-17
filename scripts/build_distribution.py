@@ -40,7 +40,7 @@ def dependency_licenses(source, package, metadata):
         for path in files:
             shutil.copyfile(path, destination / path.name)
         notices.append("- %s %s (%s)" % (name, dependency["version"], dependency.get("license", "see notice")))
-    (package / "THIRD-PARTY-NOTICES.md").write_text("# Bundled runtime dependencies\n\n" + "\n".join(sorted(notices)) + "\n\nPico CSS 2.1.1 notices are in public/vendor.\n")
+    (package / "THIRD-PARTY-NOTICES.md").write_text("# Bundled runtime dependencies\n\n" + "\n".join(sorted(notices)) + "\n\nPico CSS 2.1.1 notices are in public/vendor.\nPyYAML 6.0.3 (MIT) source and license are in packages/python.\n")
 
 def _build(source, output, core, provenance, environment):
     output, core = Path(output), Path(core)
@@ -65,17 +65,22 @@ def _build(source, output, core, provenance, environment):
     for directory in ("bin", "public", "demo"):
         shutil.copytree(source / directory, package / directory)
     (package / "scripts").mkdir()
-    for filename in ("console-cli.ts", "launch.sh", "python-runtime.sh", "service-ownership.ts", "install-autostart-macos.sh", "install-autostart-linux.sh", "uninstall-autostart-macos.sh", "uninstall-autostart-linux.sh"):
+    for filename in ("console-cli.ts", "launch.sh", "python-runtime.sh", "python-runtime.py", "service-ownership.ts", "install-autostart-macos.sh", "install-autostart-linux.sh", "uninstall-autostart-macos.sh", "uninstall-autostart-linux.sh"):
         shutil.copy2(source / "scripts" / filename, package / "scripts" / filename)
     for name in ("LICENSE", "README.md", "console.yaml.example"):
         shutil.copy2(source / name, package / name)
+    import importlib.util
+    specification = importlib.util.spec_from_file_location('console_python_payload', source / 'scripts/python-runtime.py')
+    helper = importlib.util.module_from_spec(specification); specification.loader.exec_module(helper)
+    payload_root, python_dependency = helper.payload()
+    shutil.copytree(payload_root, package / 'packages/python')
     dependency_licenses(source, package, metadata)
     shutil.copytree(core, package / "synthesis-core")
     inventory = {p.relative_to(core).as_posix(): {"sha256": digest(p), "mode": 0o755 if p.stat().st_mode & 0o111 else 0o644} for p in sorted(core.rglob("*")) if p.is_file()}
     (package / "core-files.json").write_text(json.dumps(inventory, sort_keys=True, indent=2) + "\n")
     published = {k: metadata[k] for k in ("version", "description", "license", "repository", "homepage", "author", "keywords")}
     published.update(name="@synthesiswork/console", type="module", bin={"synthesis-console":"bin/synthesis-console"},
-                     files=["bin", "scripts", "app", "public", "demo", "synthesis-core", "core-files.json", "console.yaml.example", "README.md", "LICENSE", "THIRD-PARTY-NOTICES.md", "third-party-licenses"],
+                     files=["bin", "scripts", "packages/python", "app", "public", "demo", "synthesis-core", "core-files.json", "console.yaml.example", "README.md", "LICENSE", "THIRD-PARTY-NOTICES.md", "third-party-licenses"],
                      os=["darwin", "linux"], engines={"bun": ">=1.3.13"}, publishConfig={"access":"public"})
     (package / "package.json").write_text(json.dumps(published, indent=2) + "\n")
     subprocess.run(["bun", "build", "src/index.ts", "--target=bun", "--outfile", str(package / "app/index.js")], cwd=source, env=environment, check=True)
@@ -115,6 +120,9 @@ end
     (output/"synthesis-console.rb").write_text(formula)
     record={"schema_version":1,"version":version,"npm_package":"@synthesiswork/console","core_release":core_meta,
             "archive":{"file":archive.name,"url":url,"sha256":checksum},"installer_sha256":digest(output/"install.sh"),
+            "python_dependency": {"name": python_dependency["name"], "version": python_dependency["version"],
+                "source_url": python_dependency["source_url"], "source_sha256": python_dependency["source_sha256"],
+                "manifest_sha256": helper.PAYLOAD_SHA256, "acquisition": "bundled-pure-python-offline-owned-venv"},
             "bun_version":subprocess.check_output(["bun","--version"],env=environment,text=True).strip(),
             "source": provenance, "dependencies": {"lockfile": "bun.lock", "lockfile_sha256": digest(source / "bun.lock"),
                 "acquisition": "fresh-frozen-lockfile-production-ignore-scripts", "registry": "https://registry.npmjs.org"}}

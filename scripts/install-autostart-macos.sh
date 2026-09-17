@@ -42,12 +42,6 @@ if [[ -z "${BUN_BIN}" ]]; then
   exit 1
 fi
 
-PYTHON_BIN="$(find_synthesis_python || true)"
-if [[ -z "${PYTHON_BIN}" ]]; then
-  echo "Error: Could not find a Python 3 interpreter with PyYAML." >&2
-  echo "Install PyYAML or set SYNTHESIS_PYTHON_BIN to a compatible interpreter." >&2
-  exit 1
-fi
 
 if [[ ! -d "${REPO_ROOT}/node_modules" && ! -f "${REPO_ROOT}/app/index.js" ]]; then
   echo "Error: Dependencies not installed. Run 'bun install' in ${REPO_ROOT} first." >&2
@@ -63,6 +57,11 @@ xml_escape() {
 }
 
 "${BUN_BIN}" "${REPO_ROOT}/scripts/service-ownership.ts" check "${PLIST_PATH}"
+
+# Foreign service state is refused before provisioning any runtime files.
+BOOTSTRAP_PYTHON="$(console_bootstrap_python)"
+PYTHON_BIN="$(provision_synthesis_python)"
+
 
 mkdir -p "${LOG_DIR}"
 mkdir -p "$(dirname "${PLIST_PATH}")"
@@ -81,6 +80,8 @@ STDERR_PATH_XML="$(xml_escape "${LOG_DIR}/stderr.log")"
 SERVICE_PATH_XML="$(xml_escape "$(dirname "${BUN_BIN}"):/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin")"
 BUN_BIN_XML="$(xml_escape "${BUN_BIN}")"
 PYTHON_BIN_XML="$(xml_escape "${PYTHON_BIN}")"
+BOOTSTRAP_PYTHON_XML="$(xml_escape "${BOOTSTRAP_PYTHON}")"
+DATA_HOME_XML="$(xml_escape "${XDG_DATA_HOME:-$HOME/.local/share}")"
 
 cat > "${PLIST_PATH}" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -118,6 +119,12 @@ cat > "${PLIST_PATH}" <<PLIST
         <string>${BUN_BIN_XML}</string>
         <key>SYNTHESIS_PYTHON_BIN</key>
         <string>${PYTHON_BIN_XML}</string>
+        <key>SYNTHESIS_BOOTSTRAP_PYTHON</key>
+        <string>${BOOTSTRAP_PYTHON_XML}</string>
+        <key>XDG_DATA_HOME</key>
+        <string>${DATA_HOME_XML}</string>
+        <key>PYTHONDONTWRITEBYTECODE</key>
+        <string>1</string>
 ${PRIVATE_CONTROL_PLANE_XML}
     </dict>
     <key>ProcessType</key>

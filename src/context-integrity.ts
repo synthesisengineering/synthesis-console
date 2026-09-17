@@ -2,7 +2,7 @@ import { execFile } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { synthesisPythonBin } from "./python-runtime.js";
+import { synthesisPythonBin, synthesisPythonEnv } from "./python-runtime.js";
 import { resolveSkillScript } from "./skill-resolution.js";
 
 /**
@@ -89,7 +89,7 @@ export function runAuditNow(): boolean {
     const child = execFile(
       synthesisPythonBin(),
       [script, "--quiet"],
-      { timeout: 15 * 60 * 1000 },
+      { env: synthesisPythonEnv(), timeout: 15 * 60 * 1000 },
       () => {
         auditInflight = false;
       }

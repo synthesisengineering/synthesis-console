@@ -34,6 +34,6 @@ jobs:
       - run: python -m pip install pytest
       - run: bun test
       - run: bun run typecheck
-      - run: python -B -m pytest scripts/test_distribution.py scripts/test_packaging_provenance.py scripts/test_autostart_uninstall.py scripts/test_lifecycle_bridge.py -q
+      - run: python -B -m pytest scripts/test_distribution.py scripts/test_packaging_provenance.py scripts/test_autostart_uninstall.py scripts/test_lifecycle_bridge.py scripts/test_python_runtime.py -q
         env:
           SYNTHESIS_CORE_SOURCE: ${{ github.workspace }}/.test-core-source
