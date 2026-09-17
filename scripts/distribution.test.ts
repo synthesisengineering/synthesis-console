@@ -27,6 +27,54 @@ test("source checkout setup fails closed until a verified core is bundled", () =
     expect(r.stderr).toContain("core"); expect(readdirSync(home)).toEqual([]);
   } finally { rmSync(home,{recursive:true,force:true}); }
 });
+test("the announced URL follows actual listener creation", async () => {
+  const home = fixture();
+  let proc: ReturnType<typeof Bun.spawn> | undefined;
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const observer = join(home, "listen-observer.js");
+    writeFileSync(observer, `
+const originalServe = Bun.serve.bind(Bun);
+let listening = false;
+Bun.serve = (...args) => {
+  const server = originalServe(...args);
+  listening = true;
+  return server;
+};
+const originalLog = console.log.bind(console);
+console.log = (...args) => {
+  if (args.some(value => String(value).includes("http://localhost:")) && !listening)
+    throw new Error("URL announced before listener was created");
+  originalLog(...args);
+};
+`);
+    // Observe the actual server constructor without substituting a fake server
+    // or delaying the fetch; the URL is a readiness promise to real consumers.
+    proc = Bun.spawn([process.execPath, "--preload", observer, join(root, "src/index.ts"), "--demo"], {
+      cwd: root, env: { ...process.env, HOME: home, PORT: "19820" }, stdout: "pipe", stderr: "pipe",
+    });
+    const reader = proc.stdout.getReader();
+    let output = "";
+    timeout = setTimeout(() => proc?.kill(), 10000);
+    while (!output.includes("http://localhost:")) {
+      const part = await reader.read();
+      if (part.done) break;
+      output += new TextDecoder().decode(part.value);
+    }
+    clearTimeout(timeout);
+    reader.releaseLock();
+    const port = output.match(/http:\/\/localhost:(\d+)/)?.[1];
+    if (!port) throw new Error(output + await new Response(proc.stderr).text());
+    const page = await fetch(`http://127.0.0.1:${port}/projects`);
+    expect(page.status).toBe(200);
+    expect(await page.text()).toContain("Demo");
+  } finally {
+    clearTimeout(timeout);
+    proc?.kill();
+    if (proc) await proc.exited;
+    rmSync(home, { recursive: true, force: true });
+  }
+}, 15000);
 test("actual demo server serves bundled assets and binds only to loopback", async () => {
   const home=fixture(); let proc: ReturnType<typeof Bun.spawn>|undefined;
   try {

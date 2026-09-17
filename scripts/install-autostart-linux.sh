@@ -125,7 +125,7 @@ After=network.target
 [Service]
 Type=simple
 WorkingDirectory=${REPO_ROOT_SYSTEMD}
-ExecStart="${BUN_BIN_SYSTEMD}" run scripts/console-cli.ts start
+ExecStart=/usr/bin/env "${BUN_BIN_SYSTEMD}" run scripts/console-cli.ts start
 Restart=on-failure
 RestartSec=10
 Environment="PATH=${SERVICE_PATH_SYSTEMD}"
