@@ -1,6 +1,7 @@
 import type { ProjectStatus, ProjectWithSource, InitiativeWithSource } from "../parsers/yaml.js";
 import type { Source } from "../config.js";
 import { escapeHtml, escapeAttr } from "../utils.js";
+import { relativeLabel, resumePrompt, sortProjects } from "../parsers/recency.js";
 
 const STATUS_ORDER: ProjectStatus[] = [
   "active",
@@ -26,21 +27,25 @@ export function projectListView(opts: {
   projects: ProjectWithSource[];
   allTags: Map<string, number>;
   currentFilters: { status?: string; tag?: string; client?: string; q?: string; source?: string; initiative?: string };
+  currentSort?: string;
   sources: Source[];
   activeSourceNames: string[];
   demoMode: boolean;
   initiatives: InitiativeWithSource[];
   groupByInitiative: boolean;
+  resumeSkillPath: string | null;
 }): string {
   const {
     projects,
     allTags,
     currentFilters,
+    currentSort,
     sources,
     activeSourceNames,
     demoMode,
     initiatives,
     groupByInitiative,
+    resumeSkillPath,
   } = opts;
 
   const isDemoActive =
@@ -70,6 +75,7 @@ export function projectListView(opts: {
   const statsHtml = renderStats(statusCounts, projects.length);
   const filtersHtml = renderFilters(
     currentFilters,
+    currentSort,
     allTags,
     sources,
     activeSourceNames,
@@ -80,8 +86,8 @@ export function projectListView(opts: {
   const projectsHtml = emptyMessage
     ? ""
     : groupByInitiative
-      ? renderProjectsGroupedByInitiative(projects, initiatives, sources)
-      : renderProjectGroupsByStatus(projects, sources);
+      ? renderProjectsGroupedByInitiative(projects, initiatives, sources, currentSort, resumeSkillPath)
+      : renderProjectGroupsByStatus(projects, sources, currentSort, resumeSkillPath);
 
   return `
     <h1>Projects</h1>
@@ -106,6 +112,7 @@ function renderStats(statusCounts: Record<string, number>, total: number): strin
 
 function renderFilters(
   current: { status?: string; tag?: string; client?: string; q?: string; source?: string; initiative?: string },
+  currentSort: string | undefined,
   allTags: Map<string, number>,
   sources: Source[],
   activeSourceNames: string[],
@@ -157,12 +164,20 @@ function renderFilters(
         </details>`
       : "";
 
+  const sort = currentSort === "name" || currentSort === "status" ? currentSort : "recent";
   return `
     <div class="filters">
       <div class="search-bar">
         <input type="search" id="search-input" placeholder="Search projects..."
                value="${escapeAttr(current.q || "")}"
                aria-label="Search projects">
+        <label class="sort-label">Sort
+          <select id="sort-select" aria-label="Sort projects">
+            <option value="recent"${sort === "recent" ? " selected" : ""}>Recently active</option>
+            <option value="name"${sort === "name" ? " selected" : ""}>Name</option>
+            <option value="status"${sort === "status" ? " selected" : ""}>Status</option>
+          </select>
+        </label>
       </div>
       <details open>
         <summary>Status</summary>
@@ -217,6 +232,34 @@ function renderFilters(
           });
         }
 
+        const sortSelect = document.getElementById('sort-select');
+        if (sortSelect) {
+          sortSelect.addEventListener('change', () => {
+            updateFilter('sort', sortSelect.value === 'recent' ? '' : sortSelect.value);
+          });
+        }
+
+        document.querySelectorAll('.resume-copy').forEach(btn => {
+          btn.addEventListener('click', async () => {
+            const target = document.getElementById(btn.dataset.resumeFor);
+            const text = target ? target.textContent : '';
+            if (!text) return;
+            try {
+              await navigator.clipboard.writeText(text);
+            } catch {
+              const area = document.createElement('textarea');
+              area.value = text;
+              document.body.appendChild(area);
+              area.select();
+              document.execCommand('copy');
+              area.remove();
+            }
+            const label = btn.textContent;
+            btn.textContent = 'Copied';
+            setTimeout(() => { btn.textContent = label; }, 1200);
+          });
+        });
+
         function updateFilter(key, value) {
           const url = new URL(window.location);
           if (value) url.searchParams.set(key, value);
@@ -230,7 +273,9 @@ function renderFilters(
 
 function renderProjectGroupsByStatus(
   projects: ProjectWithSource[],
-  sources: Source[]
+  sources: Source[],
+  sortMode: string | undefined,
+  resumeSkillPath: string | null
 ): string {
   const grouped = new Map<ProjectStatus, ProjectWithSource[]>();
   for (const p of projects) {
@@ -238,15 +283,16 @@ function renderProjectGroupsByStatus(
     if (!grouped.has(status)) grouped.set(status, []);
     grouped.get(status)!.push(p);
   }
-  for (const [, list] of grouped) sortByDate(list);
+  for (const [, list] of grouped) sortProjects(list, sortMode);
 
   const sourceByName = new Map(sources.map((s) => [s.name, s]));
   const sections: string[] = [];
+  const ids = { next: 0 };
 
   for (const status of STATUS_ORDER) {
     const list = grouped.get(status);
     if (!list || list.length === 0) continue;
-    const rows = list.map((p) => renderProjectRow(p, sourceByName)).join("\n");
+    const rows = list.map((p) => renderProjectRow(p, sourceByName, resumeSkillPath, ids)).join("\n");
     sections.push(`
       <section class="project-group">
         <h2><span class="badge badge-${STATUS_COLORS[status]}">${status}</span> <small>(${list.length})</small></h2>
@@ -263,9 +309,12 @@ function renderProjectGroupsByStatus(
 function renderProjectsGroupedByInitiative(
   projects: ProjectWithSource[],
   initiatives: InitiativeWithSource[],
-  sources: Source[]
+  sources: Source[],
+  sortMode: string | undefined,
+  resumeSkillPath: string | null
 ): string {
   const sourceByName = new Map(sources.map((s) => [s.name, s]));
+  const ids = { next: 0 };
 
   // Index projects by (source, initiative-or-ungrouped)
   const byKey = new Map<string, ProjectWithSource[]>();
@@ -275,7 +324,7 @@ function renderProjectsGroupedByInitiative(
     if (!byKey.has(key)) byKey.set(key, []);
     byKey.get(key)!.push(p);
   }
-  for (const [, list] of byKey) sortByDate(list);
+  for (const [, list] of byKey) sortProjects(list, sortMode);
 
   const sections: string[] = [];
 
@@ -288,12 +337,12 @@ function renderProjectsGroupedByInitiative(
     for (const init of srcInitiatives) {
       const list = byKey.get(`${src.name}::${init.id}`) || [];
       if (list.length === 0) continue;
-      perInitSections.push(renderInitiativeBlock(init, list, sourceByName));
+      perInitSections.push(renderInitiativeBlock(init, list, sourceByName, resumeSkillPath, ids));
     }
 
     const ungrouped = byKey.get(`${src.name}::_ungrouped`) || [];
     if (ungrouped.length > 0) {
-      perInitSections.push(renderUngroupedBlock(src.name, ungrouped, sourceByName));
+      perInitSections.push(renderUngroupedBlock(src.name, ungrouped, sourceByName, resumeSkillPath, ids));
     }
 
     if (perInitSections.length === 0) continue;
@@ -314,10 +363,12 @@ function renderProjectsGroupedByInitiative(
 function renderInitiativeBlock(
   init: InitiativeWithSource,
   projects: ProjectWithSource[],
-  sourceByName: Map<string, Source>
+  sourceByName: Map<string, Source>,
+  resumeSkillPath: string | null,
+  ids: { next: number }
 ): string {
   const statusColor = STATUS_COLORS[init.status] || "gray";
-  const rows = projects.map((p) => renderProjectRow(p, sourceByName)).join("\n");
+  const rows = projects.map((p) => renderProjectRow(p, sourceByName, resumeSkillPath, ids)).join("\n");
   return `
     <div class="initiative-block">
       <h3>
@@ -334,9 +385,11 @@ function renderInitiativeBlock(
 function renderUngroupedBlock(
   sourceName: string,
   projects: ProjectWithSource[],
-  sourceByName: Map<string, Source>
+  sourceByName: Map<string, Source>,
+  resumeSkillPath: string | null,
+  ids: { next: number }
 ): string {
-  const rows = projects.map((p) => renderProjectRow(p, sourceByName)).join("\n");
+  const rows = projects.map((p) => renderProjectRow(p, sourceByName, resumeSkillPath, ids)).join("\n");
   return `
     <div class="initiative-block initiative-block-ungrouped">
       <h3>
@@ -349,7 +402,12 @@ function renderUngroupedBlock(
   `;
 }
 
-function renderProjectRow(p: ProjectWithSource, sourceByName: Map<string, Source>): string {
+function renderProjectRow(
+  p: ProjectWithSource,
+  sourceByName: Map<string, Source>,
+  resumeSkillPath: string | null,
+  ids: { next: number }
+): string {
   const src = sourceByName.get(p._source);
   const sourceLabel = src ? escapeHtml(src.display_name || src.name) : escapeHtml(p._source);
   const statusColor = STATUS_COLORS[p.status as ProjectStatus] || "gray";
@@ -364,6 +422,8 @@ function renderProjectRow(p: ProjectWithSource, sourceByName: Map<string, Source
   const description = p.description
     ? truncate(p.description.replace(/\n/g, " "), 160)
     : "";
+  const promptId = `resume-prompt-${ids.next++}`;
+  const prompt = resumePrompt(p, resumeSkillPath);
 
   return `
     <article class="project-row">
@@ -374,6 +434,7 @@ function renderProjectRow(p: ProjectWithSource, sourceByName: Map<string, Source
         <span class="project-header-meta">
           <span class="badge badge-${statusColor}">${escapeHtml(p.status)}</span>
           ${date ? `<time>${escapeHtml(date)}</time>` : ""}
+          <span class="recency" title="Newest session activity">${escapeHtml(relativeLabel(p._lastActiveMs))}</span>
         </span>
       </div>
       ${description ? `<p class="project-desc">${escapeHtml(description)}</p>` : ""}
@@ -381,17 +442,13 @@ function renderProjectRow(p: ProjectWithSource, sourceByName: Map<string, Source
         <span class="source-badge" title="Source: ${escapeAttr(p._source)}">${sourceLabel}</span>
         ${tags}
         ${p.client ? `<span class="tag tag-client">${escapeHtml(p.client)}</span>` : ""}
+        <span class="resume-wrap">
+          <button class="resume-copy" data-resume-for="${promptId}" title="Copy the resume prompt for any harness">Resume</button>
+          <pre hidden id="${promptId}">${escapeHtml(prompt)}</pre>
+        </span>
       </div>
     </article>
   `;
-}
-
-function sortByDate(list: ProjectWithSource[]): void {
-  list.sort((a, b) => {
-    const dateA = a.last_session || a.started_date || "";
-    const dateB = b.last_session || b.started_date || "";
-    return dateB.localeCompare(dateA);
-  });
 }
 
 function truncate(s: string, max: number): string {

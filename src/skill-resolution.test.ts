@@ -24,4 +24,15 @@ describe("plugin skill resolution", () => {
 
     expect(pluginSkillDirs([claude, codex], skill)).toEqual([newSkill, oldSkill]);
   });
+
+  test("finds the Muse package-nested layout", () => {
+    const root = mkdtempSync(join(tmpdir(), "synthesis-console-skills-"));
+    roots.push(root);
+    const muse = join(root, "muse");
+    const skill = "synthesis-project-resume";
+    const nested = join(muse, "local", "plugin", "abc123", "package", "skills", skill);
+    mkdirSync(nested, { recursive: true });
+
+    expect(pluginSkillDirs([muse], skill)).toEqual([nested]);
+  });
 });

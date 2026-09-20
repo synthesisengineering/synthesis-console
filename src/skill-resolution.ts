@@ -46,8 +46,12 @@ function pluginSkillCandidates(
     for (const plugin of safeReaddir(marketplaceDir)) {
       const pluginDir = join(marketplaceDir, plugin);
       for (const version of safeReaddir(pluginDir)) {
-        const dir = join(pluginDir, version, "skills", skillName);
-        if (existsSync(dir)) found.push({ version, dir });
+        // Claude/Codex layout: <version>/skills/<skill>.
+        // Muse layout: <version>/package/skills/<skill>.
+        for (const mid of ["skills", join("package", "skills")]) {
+          const dir = join(pluginDir, version, mid, skillName);
+          if (existsSync(dir)) found.push({ version, dir });
+        }
       }
     }
   }
@@ -71,23 +75,30 @@ export function resolveSkillScript(
   scriptName: string,
   override?: string
 ): string | null {
+  return resolveSkillFile(skillName, join("scripts", scriptName), override);
+}
+
+/** Resolve any file inside a skill across native plugin and user-skill routes. */
+export function resolveSkillFile(
+  skillName: string,
+  relativePath: string,
+  override?: string
+): string | null {
   const home = homedir();
   const candidates: string[] = [];
   if (override) candidates.push(override);
   candidates.push(join(SYNTHESIS_HOME, "skills", skillName));
-  candidates.push(
-    ...pluginSkillDirs(
-      [join(home, ".claude"), join(home, ".codex")].map((client) =>
-        join(client, "plugins", "cache")
-      ),
-      skillName
-    )
-  );
+  const cacheRoots = [
+    join(home, ".claude", "plugins", "cache"),
+    join(home, ".codex", "plugins", "cache"),
+    join(home, ".local", "share", "muse", "plugins", "cache"),
+  ];
+  candidates.push(...pluginSkillDirs(cacheRoots, skillName));
   candidates.push(join(home, ".claude", "skills", skillName));
   candidates.push(join(home, ".agents", "skills", skillName));
   for (const directory of candidates) {
-    const script = join(directory, "scripts", scriptName);
-    if (existsSync(script)) return script;
+    const file = join(directory, relativePath);
+    if (existsSync(file)) return file;
   }
   return null;
 }

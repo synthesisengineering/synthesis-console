@@ -1,5 +1,6 @@
 import type { Project, Initiative } from "../parsers/yaml.js";
 import { escapeHtml, escapeAttr } from "../utils.js";
+import { relativeLabel, resumePrompt } from "../parsers/recency.js";
 
 const STATUS_COLORS: Record<string, string> = {
   active: "blue",
@@ -19,8 +20,10 @@ export function projectDetailView(opts: {
   sourceName: string;
   initiative?: Initiative;
   relatedResolutions?: Map<string, { source: string }>;
+  resumeSkillPath?: string | null;
+  lastActiveMs?: number;
 }): string {
-  const { project: p, contextHtml, referenceHtml, sessions, sourceName, initiative, relatedResolutions } = opts;
+  const { project: p, contextHtml, referenceHtml, sessions, sourceName, initiative, relatedResolutions, resumeSkillPath, lastActiveMs } = opts;
 
   const statusColor = STATUS_COLORS[p.status] || "gray";
 
@@ -45,6 +48,11 @@ export function projectDetailView(opts: {
 
   const dates = buildDatesTable(p);
   const sessionsList = renderSessionsList(p.id, sessions, sourceName);
+  const prompt = resumePrompt(
+    { id: p.id, _source: sourceName },
+    resumeSkillPath ?? null
+  );
+  const newestPeriod = sessions.length > 0 ? sessions[0].period : null;
 
   return `
     <nav aria-label="breadcrumb">
@@ -57,8 +65,40 @@ export function projectDetailView(opts: {
 
     <hgroup>
       <h1>${escapeHtml(p.name)}</h1>
-      <p><span class="badge badge-${statusColor}">${escapeHtml(p.status)}</span></p>
+      <p><span class="badge badge-${statusColor}">${escapeHtml(p.status)}</span>
+      <span class="recency" title="Newest session activity">${escapeHtml(relativeLabel(lastActiveMs))}</span>
+      ${newestPeriod ? `<span class="tag">session ${escapeHtml(newestPeriod)}</span>` : ""}</p>
     </hgroup>
+
+    <section class="resume-block">
+      <h3>Resume in any harness</h3>
+      <pre id="resume-prompt-detail">${escapeHtml(prompt)}</pre>
+      <button class="resume-copy" data-resume-for="resume-prompt-detail">Copy resume prompt</button>
+    </section>
+    <script>
+      (function() {
+        const btn = document.querySelector('.resume-block .resume-copy');
+        if (!btn) return;
+        btn.addEventListener('click', async () => {
+          const target = document.getElementById(btn.dataset.resumeFor);
+          const text = target ? target.textContent : '';
+          if (!text) return;
+          try {
+            await navigator.clipboard.writeText(text);
+          } catch {
+            const area = document.createElement('textarea');
+            area.value = text;
+            document.body.appendChild(area);
+            area.select();
+            document.execCommand('copy');
+            area.remove();
+          }
+          const label = btn.textContent;
+          btn.textContent = 'Copied';
+          setTimeout(() => { btn.textContent = label; }, 1200);
+        });
+      })();
+    </script>
 
     <div class="project-detail-layout">
       <aside class="project-sidebar">
