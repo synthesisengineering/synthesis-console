@@ -14,8 +14,8 @@
     "autostart:uninstall": "bash scripts/uninstall-autostart-$(uname -s | tr '[:upper:]' '[:lower:]' | sed 's/darwin/macos/').sh"
   },
   "dependencies": {
-    "hono": "^4.12.32",
-    "js-yaml": "^5.2.2",
+    "hono": "^4.13.8",
+    "js-yaml": "^5.4.2",
     "markdown-it": "^14.3.0"
   },
   "devDependencies": {
