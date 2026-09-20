@@ -52,6 +52,22 @@ describe("newestSessionMs", () => {
     utimesSync(newFile, fresh, fresh);
     expect(newestSessionMs(join(root, "proj"))).toBe(fresh.getTime());
   });
+
+  test("ignores the generated INDEX.md", () => {
+    const root = mkdtempSync(join(tmpdir(), "recency-"));
+    roots.push(root);
+    const sessions = join(root, "proj", "sessions");
+    mkdirSync(sessions, { recursive: true });
+    const sessionFile = join(sessions, "2026-09.md");
+    const indexFile = join(sessions, "INDEX.md");
+    writeFileSync(sessionFile, "# s\n");
+    writeFileSync(indexFile, "# index\n");
+    const old = new Date("2026-09-19T12:00:00Z");
+    const fresh = new Date("2026-09-20T12:00:00Z");
+    utimesSync(sessionFile, old, old);
+    utimesSync(indexFile, fresh, fresh);
+    expect(newestSessionMs(join(root, "proj"))).toBe(old.getTime());
+  });
 });
 
 describe("relativeLabel", () => {

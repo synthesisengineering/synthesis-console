@@ -23,7 +23,7 @@ export function newestSessionMs(projectDir: string | null): number | null {
   if (!existsSync(sessionsDir)) return null;
   let newest: number | null = null;
   for (const file of readdirSync(sessionsDir)) {
-    if (!file.endsWith(".md")) continue;
+    if (!file.endsWith(".md") || file === "INDEX.md") continue;
     try {
       const mtime = statSync(join(sessionsDir, file)).mtimeMs;
       if (newest === null || mtime > newest) newest = mtime;
