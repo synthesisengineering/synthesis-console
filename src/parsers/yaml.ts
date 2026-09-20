@@ -33,6 +33,8 @@ export interface Project {
 
 export interface ProjectWithSource extends Project {
   _source: string;
+  /** Annotated by recency.ts: newest activity in epoch milliseconds. */
+  _lastActiveMs?: number;
 }
 
 export interface Initiative {

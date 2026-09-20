@@ -19,6 +19,8 @@ import { projectDetailView } from "../views/project-detail.js";
 import { sessionDetailView } from "../views/session.js";
 import { escapeHtml, sanitizePathSegment } from "../utils.js";
 import { activeSources, isSourceActive } from "../active-sources.js";
+import { annotateRecency } from "../parsers/recency.js";
+import { resolveSkillFile } from "../skill-resolution.js";
 
 export function projectRoutes(config: ConsoleConfig) {
   const app = new Hono();
@@ -41,6 +43,13 @@ export function projectRoutes(config: ConsoleConfig) {
 
     const hasFilters = Object.values(filters).some((v) => v);
     const displayed = hasFilters ? filterProjects(projects, filters) : projects;
+    annotateRecency(displayed, config.sources);
+
+    const sortMode = c.req.query("sort");
+    const resumeSkillPath = resolveSkillFile(
+      "synthesis-project-resume",
+      "SKILL.md"
+    );
 
     // Default to grouped-by-initiative if any initiatives exist and no explicit preference.
     const groupParam = c.req.query("group");
@@ -52,11 +61,13 @@ export function projectRoutes(config: ConsoleConfig) {
       projects: displayed,
       allTags,
       currentFilters: filters,
+      currentSort: sortMode,
       sources: config.sources,
       activeSourceNames: active.map((s) => s.name),
       demoMode: config.demoMode,
       initiatives,
       groupByInitiative,
+      resumeSkillPath,
     });
 
     return c.html(
@@ -148,14 +159,18 @@ export function projectRoutes(config: ConsoleConfig) {
       }
     }
 
+    const withSource: ProjectWithSource = { ...project, _source: src.name };
+    annotateRecency([withSource], config.sources);
     const content = projectDetailView({
-      project,
+      project: withSource,
       contextHtml,
       referenceHtml,
       sessions,
       sourceName: src.name,
       initiative,
       relatedResolutions,
+      resumeSkillPath: resolveSkillFile("synthesis-project-resume", "SKILL.md"),
+      lastActiveMs: withSource._lastActiveMs,
     });
 
     return c.html(
