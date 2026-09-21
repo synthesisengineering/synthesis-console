@@ -35,4 +35,19 @@ describe("plugin skill resolution", () => {
 
     expect(pluginSkillDirs([muse], skill)).toEqual([nested]);
   });
+
+  test("content-hash install dirs sort below real versions", () => {
+    const root = mkdtempSync(join(tmpdir(), "synthesis-console-skills-"));
+    roots.push(root);
+    const claude = join(root, "claude");
+    const muse = join(root, "muse");
+    const skill = "synthesis-project-resume";
+    const versioned = join(claude, "market", "plugin", "4.123.1", "skills", skill);
+    // Leading digits must not read as version 536: a hash is not a release.
+    const hashed = join(muse, "local", "plugin", "536d4eec39826a1d", "package", "skills", skill);
+    mkdirSync(versioned, { recursive: true });
+    mkdirSync(hashed, { recursive: true });
+
+    expect(pluginSkillDirs([claude, muse], skill)).toEqual([versioned, hashed]);
+  });
 });

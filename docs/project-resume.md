@@ -6,6 +6,21 @@ machine. The console is the launch surface; the
 Normative requirements: R1–R10 in the skill's
 `references/requirements.md`. This file documents the console half.
 
+## The prompt shape (R1)
+
+```
+Use the skill synthesis-project-resume to resume the synthesis
+project with id <id> in the synthesis project management
+workspace <name>.
+```
+
+The prompt names the project-management workspace (not the console
+source key) and the skill by name. It never embeds a filesystem
+path, so it is identical on every machine: no client name, no
+release version. Native harnesses (Claude Code, Codex, Muse)
+invoke the skill by name; skill-less harnesses locate the skill
+file via the lookup order in the skill's §1.
+
 ## What the console renders
 
 - `/projects` lists recently-active-first by default. Recency is the
@@ -13,29 +28,30 @@ Normative requirements: R1–R10 in the skill's
   date fields (`last_session`, `completed_date`, `started_date`),
   falling back to last. `?sort=name` and `?sort=status` reorder
   within the existing groupings; unknown values fall back to recent.
-- Every row shows a relative recency label ("2h ago") and a Resume
-  button that copies the R1 prompt:
-  `Resume synthesis project <id> (source <name>).` plus the
-  skill-file line.
-- The detail page shows the same prompt in a "Resume in any harness"
-  block with a copy button, plus recency and newest session period.
+- Every row shows a relative recency label ("2h ago") and a "Copy
+  resume prompt" button that copies the R1 prompt.
+- The detail page shows the same prompt in a "Resume in any coding
+  agent" block with a one-line how-to and a copy button, plus recency
+  and newest session period.
 
-## Skill-path resolution
+## Workspace resolution
 
-The prompt's `Skill:` line is resolved live per request by
-`resolveSkillFile("synthesis-project-resume", "SKILL.md")`, newest
-install wins across the `~/.synthesis/skills` route, the Claude /
-Codex / Muse plugin caches (including the Muse `package/`-nested
-layout), and the user-skill dirs. When no install carries the skill
-yet, the prompt names the skill and says to install synthesis-skills
-instead of emitting a dead path.
+The `workspace` line comes from the source's `workspace` field in
+`console.yaml`, defaulting to the parent directory of the source
+root (the workspace in the standard
+`~/workspaces/<name>/ai-knowledge-*` layout). The receiving agent
+resolves it per the skill: `ai-knowledge-{workspace}` under the
+workspace roots.
 
-## Paste it anywhere
+## Skill-presence detection
 
-The prompt works in Claude Code, Codex, and Muse (which resolve the
-named skill natively) and in skill-less harnesses (which read the
-absolute skill path). The skill classifies the session — continuing,
-fresh, or wrong-project paste — and refuses to strand live work.
+The console checks for any install of `synthesis-project-resume`
+via `resolveSkillFile` (the `~/.synthesis/skills` route, the
+Claude / Codex / Muse plugin caches including the Muse
+`package/`-nested layout, and the user-skill dirs) purely to
+decide whether to warn. When no install carries the skill yet, the
+prompt gains a second sentence saying to install synthesis-skills.
+No filesystem path is ever emitted.
 
 ## Guarantees the console keeps
 

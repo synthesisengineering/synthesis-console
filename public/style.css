@@ -3666,3 +3666,42 @@ body[data-cockpit-focus="true"] .cockpit-shell .cockpit-header {
 .sync-issue-uncommitted { color: #ed6c02; }
 .sync-issue-unpushed { color: #0288d1; }
 .sync-issue-behind { color: #7b1fa2; }
+
+/* Resume-prompt toast: non-intrusive copy confirmation, bottom-center. */
+#resume-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 1.5rem;
+  transform: translateX(-50%) translateY(0.5rem);
+  background: #1f2937;
+  color: #fff;
+  padding: 0.6rem 1.1rem;
+  border-radius: 0.5rem;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 150ms ease, transform 150ms ease;
+  z-index: 1000;
+  max-width: min(90vw, 36rem);
+  text-align: center;
+  font-size: 0.9rem;
+}
+#resume-toast.toast-visible {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+#resume-toast.toast-error {
+  background: #7f1d1d;
+}
+@media (prefers-reduced-motion: reduce) {
+  #resume-toast {
+    transition: none;
+  }
+}
+
+/* Resume prompts contain long unbroken skill paths; wrap instead of clipping. */
+.resume-block pre,
+.resume-wrap pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

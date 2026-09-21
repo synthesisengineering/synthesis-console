@@ -35,6 +35,8 @@ export interface ProjectWithSource extends Project {
   _source: string;
   /** Annotated by recency.ts: newest activity in epoch milliseconds. */
   _lastActiveMs?: number;
+  /** Annotated by recency.ts: project-management workspace for the R1 prompt. */
+  _workspace?: string;
 }
 
 export interface Initiative {

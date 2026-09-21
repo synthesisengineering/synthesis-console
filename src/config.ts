@@ -1,6 +1,6 @@
 import { readFileSync, existsSync, readdirSync, statSync } from "fs";
 import type { Dirent } from "fs";
-import { join, dirname } from "path";
+import { join, dirname, basename } from "path";
 import { homedir } from "os";
 import * as yaml from "js-yaml";
 
@@ -44,6 +44,14 @@ export interface Source {
   preps_dir?: string;
   /** Relative path to catch-up ledgers dir (v0.14+) — contributes the /ledger view. */
   ledgers_dir?: string;
+  /**
+   * Synthesis project-management workspace this source belongs to
+   * (the `{workspace}` in `ai-knowledge-{workspace}`). The R1 resume
+   * prompt names it so any agent can resolve the checkout. Optional:
+   * defaults to the parent directory of root, which is the workspace
+   * in the standard `~/workspaces/<name>/ai-knowledge-*` layout.
+   */
+  workspace?: string;
   default_active?: boolean;
   demo?: boolean;
   slack?: SlackConfig;
@@ -198,10 +206,21 @@ function normalizeSource(raw: Record<string, unknown>): Source {
     notes_dir: typeof raw.notes_dir === "string" ? raw.notes_dir : undefined,
     preps_dir: typeof raw.preps_dir === "string" ? raw.preps_dir : undefined,
     ledgers_dir: typeof raw.ledgers_dir === "string" ? raw.ledgers_dir : undefined,
+    workspace: typeof raw.workspace === "string" ? raw.workspace : undefined,
     default_active: raw.default_active === true,
     demo: raw.demo === true,
     slack,
   };
+}
+
+/**
+ * The project-management workspace for a source: the explicit `workspace`
+ * field, else the parent directory of the source root (the workspace in
+ * the standard `~/workspaces/<name>/ai-knowledge-*` layout).
+ */
+export function sourceWorkspace(src: Source): string {
+  if (src.workspace) return src.workspace;
+  return basename(dirname(src.root));
 }
 
 /**

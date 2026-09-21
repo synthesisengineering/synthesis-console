@@ -46,10 +46,8 @@ export function projectRoutes(config: ConsoleConfig) {
     annotateRecency(displayed, config.sources);
 
     const sortMode = c.req.query("sort");
-    const resumeSkillPath = resolveSkillFile(
-      "synthesis-project-resume",
-      "SKILL.md"
-    );
+    const resumeSkillInstalled =
+      resolveSkillFile("synthesis-project-resume", "SKILL.md") !== null;
 
     // Default to grouped-by-initiative if any initiatives exist and no explicit preference.
     const groupParam = c.req.query("group");
@@ -67,7 +65,7 @@ export function projectRoutes(config: ConsoleConfig) {
       demoMode: config.demoMode,
       initiatives,
       groupByInitiative,
-      resumeSkillPath,
+      resumeSkillInstalled,
     });
 
     return c.html(
@@ -169,7 +167,8 @@ export function projectRoutes(config: ConsoleConfig) {
       sourceName: src.name,
       initiative,
       relatedResolutions,
-      resumeSkillPath: resolveSkillFile("synthesis-project-resume", "SKILL.md"),
+      resumeSkillInstalled:
+        resolveSkillFile("synthesis-project-resume", "SKILL.md") !== null,
       lastActiveMs: withSource._lastActiveMs,
     });
 
