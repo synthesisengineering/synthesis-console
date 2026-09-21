@@ -1,7 +1,7 @@
 import { existsSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import type { Source } from "../config.js";
-import { getProjectPath } from "../config.js";
+import { getProjectPath, sourceWorkspace } from "../config.js";
 import type { ProjectWithSource } from "./yaml.js";
 
 export type ProjectSort = "recent" | "name" | "status";
@@ -53,6 +53,7 @@ export function annotateRecency(
   for (const project of projects) {
     const src = byName.get(project._source);
     const dir = src ? getProjectPath(src, project.id) : null;
+    project._workspace = src ? sourceWorkspace(src) : project._source;
     project._lastActiveMs =
       newestSessionMs(dir) ??
       dateFieldMs(project.last_session) ??
@@ -102,14 +103,25 @@ export function sortProjects(
   list.sort((a, b) => (b._lastActiveMs ?? -1) - (a._lastActiveMs ?? -1));
 }
 
-/** The R1 resume prompt for a project, with a live-resolved skill path. */
+/**
+ * The R1 resume prompt for a project: one sentence directing any
+ * harness to use the skill by name for the project id in the
+ * project-management workspace. Never a client-specific,
+ * version-pinned filesystem path, so the same prompt invokes the
+ * skill in every harness on every machine. `skillInstalled` only
+ * controls the not-installed warning.
+ */
 export function resumePrompt(
-  project: { id: string; _source: string },
-  skillPath: string | null
+  project: { id: string; _source: string; _workspace?: string },
+  skillInstalled: boolean
 ): string {
-  const first = `Resume synthesis project ${project.id} (source ${project._source}).`;
-  if (!skillPath) {
-    return `${first}\nSkill: synthesis-project-resume (not installed on this machine — install synthesis-skills first).`;
+  const workspace = project._workspace ?? project._source;
+  const sentence =
+    `Use the skill synthesis-project-resume to resume the synthesis ` +
+    `project with id ${project.id} in the synthesis project management ` +
+    `workspace ${workspace}.`;
+  if (!skillInstalled) {
+    return `${sentence} (synthesis-project-resume is not installed on this machine — install synthesis-skills first.)`;
   }
-  return `${first}\nSkill: ${skillPath}`;
+  return sentence;
 }

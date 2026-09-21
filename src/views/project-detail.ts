@@ -1,4 +1,4 @@
-import type { Project, Initiative } from "../parsers/yaml.js";
+import type { ProjectWithSource, Initiative } from "../parsers/yaml.js";
 import { escapeHtml, escapeAttr } from "../utils.js";
 import { relativeLabel, resumePrompt } from "../parsers/recency.js";
 
@@ -13,17 +13,17 @@ const STATUS_COLORS: Record<string, string> = {
 };
 
 export function projectDetailView(opts: {
-  project: Project;
+  project: ProjectWithSource;
   contextHtml: string | null;
   referenceHtml: string | null;
   sessions: { name: string; period: string }[];
   sourceName: string;
   initiative?: Initiative;
   relatedResolutions?: Map<string, { source: string }>;
-  resumeSkillPath?: string | null;
+  resumeSkillInstalled?: boolean;
   lastActiveMs?: number;
 }): string {
-  const { project: p, contextHtml, referenceHtml, sessions, sourceName, initiative, relatedResolutions, resumeSkillPath, lastActiveMs } = opts;
+  const { project: p, contextHtml, referenceHtml, sessions, sourceName, initiative, relatedResolutions, resumeSkillInstalled, lastActiveMs } = opts;
 
   const statusColor = STATUS_COLORS[p.status] || "gray";
 
@@ -48,10 +48,7 @@ export function projectDetailView(opts: {
 
   const dates = buildDatesTable(p);
   const sessionsList = renderSessionsList(p.id, sessions, sourceName);
-  const prompt = resumePrompt(
-    { id: p.id, _source: sourceName },
-    resumeSkillPath ?? null
-  );
+  const prompt = resumePrompt(p, resumeSkillInstalled ?? false);
   const newestPeriod = sessions.length > 0 ? sessions[0].period : null;
 
   return `
@@ -71,7 +68,8 @@ export function projectDetailView(opts: {
     </hgroup>
 
     <section class="resume-block">
-      <h3>Resume in any harness</h3>
+      <h3>Resume in any coding agent</h3>
+      <p class="resume-explainer">Copy the prompt below and paste it into Claude Code, Codex, Muse, or any other coding agent — the resume skill picks up this project there.</p>
       <pre id="resume-prompt-detail">${escapeHtml(prompt)}</pre>
       <button class="resume-copy" data-resume-for="resume-prompt-detail">Copy resume prompt</button>
     </section>
@@ -83,20 +81,59 @@ export function projectDetailView(opts: {
           const target = document.getElementById(btn.dataset.resumeFor);
           const text = target ? target.textContent : '';
           if (!text) return;
+          const copied = await copyText(text);
+          const label = btn.textContent;
+          btn.textContent = copied ? 'Copied' : 'Copy failed';
+          setTimeout(() => { btn.textContent = label; }, copied ? 1500 : 4000);
+          showToast(
+            copied
+              ? 'Resume prompt copied to clipboard — paste it into your coding agent.'
+              : 'Copy failed — select the prompt text above and copy it manually.',
+            !copied
+          );
+        });
+
+        function showToast(message, isError) {
+          let toast = document.getElementById('resume-toast');
+          if (!toast) {
+            toast = document.createElement('div');
+            toast.id = 'resume-toast';
+            toast.setAttribute('role', 'status');
+            toast.setAttribute('aria-live', 'polite');
+            document.body.appendChild(toast);
+          }
+          toast.textContent = message;
+          toast.classList.toggle('toast-error', !!isError);
+          // Restart the transition when messages arrive back to back.
+          toast.classList.remove('toast-visible');
+          void toast.offsetWidth;
+          toast.classList.add('toast-visible');
+          clearTimeout(showToast._timer);
+          showToast._timer = setTimeout(() => toast.classList.remove('toast-visible'), isError ? 5000 : 3000);
+        }
+
+        async function copyText(text) {
           try {
             await navigator.clipboard.writeText(text);
+            return true;
           } catch {
+            // Clipboard API unavailable (permissions, non-secure context).
+          }
+          try {
             const area = document.createElement('textarea');
             area.value = text;
+            area.setAttribute('readonly', '');
+            area.style.position = 'absolute';
+            area.style.left = '-9999px';
             document.body.appendChild(area);
             area.select();
-            document.execCommand('copy');
+            const ok = document.execCommand('copy');
             area.remove();
+            return ok;
+          } catch {
+            return false;
           }
-          const label = btn.textContent;
-          btn.textContent = 'Copied';
-          setTimeout(() => { btn.textContent = label; }, 1200);
-        });
+        }
       })();
     </script>
 
@@ -138,7 +175,7 @@ export function projectDetailView(opts: {
   `;
 }
 
-function buildDatesTable(p: Project): string {
+function buildDatesTable(p: ProjectWithSource): string {
   const rows: string[] = [];
   if (p.started_date) rows.push(`<tr><td>Started</td><td>${escapeHtml(p.started_date)}</td></tr>`);
   if (p.completed_date) rows.push(`<tr><td>Completed</td><td>${escapeHtml(p.completed_date)}</td></tr>`);

@@ -128,19 +128,29 @@ describe("annotateRecency", () => {
 });
 
 describe("resumePrompt", () => {
-  test("renders the R1 prompt with the skill path", () => {
+  test("renders the R1 prompt as one sentence, never a path", () => {
     const prompt = resumePrompt(
-      { id: "demo", _source: "kb" },
-      "/x/skills/synthesis-project-resume/SKILL.md"
+      { id: "demo", _source: "kb", _workspace: "rajiv" },
+      true
     );
     expect(prompt).toBe(
-      "Resume synthesis project demo (source kb).\nSkill: /x/skills/synthesis-project-resume/SKILL.md"
+      "Use the skill synthesis-project-resume to resume the synthesis " +
+        "project with id demo in the synthesis project management workspace rajiv."
     );
   });
 
-  test("names the missing skill instead of a dead path", () => {
-    const prompt = resumePrompt({ id: "demo", _source: "kb" }, null);
-    expect(prompt).toContain("synthesis-project-resume");
+  test("warns instead of naming a path when the skill is missing", () => {
+    const prompt = resumePrompt(
+      { id: "demo", _source: "kb", _workspace: "rajiv" },
+      false
+    );
+    expect(prompt).toContain("Use the skill synthesis-project-resume");
     expect(prompt).toContain("not installed");
+    expect(prompt).not.toContain("/");
+  });
+
+  test("falls back to the source key when no workspace was annotated", () => {
+    const prompt = resumePrompt({ id: "demo", _source: "kb" }, true);
+    expect(prompt).toContain("workspace kb.");
   });
 });

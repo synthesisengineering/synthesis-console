@@ -25,6 +25,10 @@
 #                      its data; the console merges fragments into one view at display time.
 #     preps_dir:       relative path to meeting-preps dir — contributes /prep pages + plan-page cards (v1.0+, optional)
 #     ledgers_dir:     relative path to catchup-ledgers dir — contributes the /ledger view + sidebar digest (v1.0+, optional)
+#     workspace:        synthesis project-management workspace for the R1 resume
+#                      prompt (the {workspace} in ai-knowledge-{workspace}).
+#                      Optional — defaults to the parent directory of root,
+#                      which is the workspace in ~/workspaces/<name>/ai-knowledge-*.
 #     default_active:  true/false — pre-selected on first run (optional, default false)
 #     demo:            true/false — marks as demo data (optional, default false)
 #     slack:           Slack integration (v0.6+); see below and docs/slack-integration.md

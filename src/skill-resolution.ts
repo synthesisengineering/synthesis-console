@@ -19,14 +19,18 @@ function compareVersions(a: string, b: string): number {
   const left = a.split(/[.\-+]/);
   const right = b.split(/[.\-+]/);
   for (let index = 0; index < Math.max(left.length, right.length); index++) {
-    const aNumber = Number.parseInt(left[index] ?? "", 10);
-    const bNumber = Number.parseInt(right[index] ?? "", 10);
-    const aMissing = Number.isNaN(aNumber);
-    const bMissing = Number.isNaN(bNumber);
-    if (aMissing && bMissing) continue;
-    if (aMissing) return -1;
-    if (bMissing) return 1;
-    if (aNumber !== bNumber) return aNumber - bNumber;
+    // A segment is numeric only when entirely digits. Content-hash
+    // install dirs (e.g. Muse's hex generation ids) start with digits
+    // but are not versions, and must sort below every real version —
+    // otherwise a cache-internal id wins over the newest release.
+    const l = left[index] ?? "";
+    const r = right[index] ?? "";
+    const lNum = /^\d+$/.test(l);
+    const rNum = /^\d+$/.test(r);
+    if (!lNum && !rNum) continue;
+    if (!lNum) return -1;
+    if (!rNum) return 1;
+    if (Number(l) !== Number(r)) return Number(l) - Number(r);
   }
   return 0;
 }

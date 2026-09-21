@@ -33,7 +33,7 @@ export function projectListView(opts: {
   demoMode: boolean;
   initiatives: InitiativeWithSource[];
   groupByInitiative: boolean;
-  resumeSkillPath: string | null;
+  resumeSkillInstalled: boolean;
 }): string {
   const {
     projects,
@@ -45,7 +45,7 @@ export function projectListView(opts: {
     demoMode,
     initiatives,
     groupByInitiative,
-    resumeSkillPath,
+    resumeSkillInstalled,
   } = opts;
 
   const isDemoActive =
@@ -86,8 +86,8 @@ export function projectListView(opts: {
   const projectsHtml = emptyMessage
     ? ""
     : groupByInitiative
-      ? renderProjectsGroupedByInitiative(projects, initiatives, sources, currentSort, resumeSkillPath)
-      : renderProjectGroupsByStatus(projects, sources, currentSort, resumeSkillPath);
+      ? renderProjectsGroupedByInitiative(projects, initiatives, sources, currentSort, resumeSkillInstalled)
+      : renderProjectGroupsByStatus(projects, sources, currentSort, resumeSkillInstalled);
 
   return `
     <h1>Projects</h1>
@@ -239,26 +239,69 @@ function renderFilters(
           });
         }
 
-        document.querySelectorAll('.resume-copy').forEach(btn => {
-          btn.addEventListener('click', async () => {
-            const target = document.getElementById(btn.dataset.resumeFor);
-            const text = target ? target.textContent : '';
-            if (!text) return;
-            try {
-              await navigator.clipboard.writeText(text);
-            } catch {
-              const area = document.createElement('textarea');
-              area.value = text;
-              document.body.appendChild(area);
-              area.select();
-              document.execCommand('copy');
-              area.remove();
-            }
-            const label = btn.textContent;
-            btn.textContent = 'Copied';
-            setTimeout(() => { btn.textContent = label; }, 1200);
-          });
+        // Delegated: this script runs before the project rows exist in
+        // the DOM, so querying for buttons here would bind zero
+        // listeners and every click would silently do nothing.
+        document.addEventListener('click', async (event) => {
+          const btn = event.target instanceof Element ? event.target.closest('.resume-copy') : null;
+          if (!btn || !btn.dataset.resumeFor) return;
+          const target = document.getElementById(btn.dataset.resumeFor);
+          const text = target ? target.textContent : '';
+          if (!text) return;
+          const copied = await copyText(text);
+          if (!copied && target) target.hidden = false;
+          const label = btn.textContent;
+          btn.textContent = copied ? 'Copied' : 'Copy failed';
+          setTimeout(() => { btn.textContent = label; }, copied ? 1500 : 4000);
+          showToast(
+            copied
+              ? 'Resume prompt copied to clipboard — paste it into your coding agent.'
+              : 'Copy failed — select the prompt text revealed by the button and copy it manually.',
+            !copied
+          );
         });
+
+        function showToast(message, isError) {
+          let toast = document.getElementById('resume-toast');
+          if (!toast) {
+            toast = document.createElement('div');
+            toast.id = 'resume-toast';
+            toast.setAttribute('role', 'status');
+            toast.setAttribute('aria-live', 'polite');
+            document.body.appendChild(toast);
+          }
+          toast.textContent = message;
+          toast.classList.toggle('toast-error', !!isError);
+          // Restart the transition when messages arrive back to back.
+          toast.classList.remove('toast-visible');
+          void toast.offsetWidth;
+          toast.classList.add('toast-visible');
+          clearTimeout(showToast._timer);
+          showToast._timer = setTimeout(() => toast.classList.remove('toast-visible'), isError ? 5000 : 3000);
+        }
+
+        async function copyText(text) {
+          try {
+            await navigator.clipboard.writeText(text);
+            return true;
+          } catch {
+            // Clipboard API unavailable (permissions, non-secure context).
+          }
+          try {
+            const area = document.createElement('textarea');
+            area.value = text;
+            area.setAttribute('readonly', '');
+            area.style.position = 'absolute';
+            area.style.left = '-9999px';
+            document.body.appendChild(area);
+            area.select();
+            const ok = document.execCommand('copy');
+            area.remove();
+            return ok;
+          } catch {
+            return false;
+          }
+        }
 
         function updateFilter(key, value) {
           const url = new URL(window.location);
@@ -275,7 +318,7 @@ function renderProjectGroupsByStatus(
   projects: ProjectWithSource[],
   sources: Source[],
   sortMode: string | undefined,
-  resumeSkillPath: string | null
+  resumeSkillInstalled: boolean
 ): string {
   const grouped = new Map<ProjectStatus, ProjectWithSource[]>();
   for (const p of projects) {
@@ -292,7 +335,7 @@ function renderProjectGroupsByStatus(
   for (const status of STATUS_ORDER) {
     const list = grouped.get(status);
     if (!list || list.length === 0) continue;
-    const rows = list.map((p) => renderProjectRow(p, sourceByName, resumeSkillPath, ids)).join("\n");
+    const rows = list.map((p) => renderProjectRow(p, sourceByName, resumeSkillInstalled, ids)).join("\n");
     sections.push(`
       <section class="project-group">
         <h2><span class="badge badge-${STATUS_COLORS[status]}">${status}</span> <small>(${list.length})</small></h2>
@@ -311,7 +354,7 @@ function renderProjectsGroupedByInitiative(
   initiatives: InitiativeWithSource[],
   sources: Source[],
   sortMode: string | undefined,
-  resumeSkillPath: string | null
+  resumeSkillInstalled: boolean
 ): string {
   const sourceByName = new Map(sources.map((s) => [s.name, s]));
   const ids = { next: 0 };
@@ -337,12 +380,12 @@ function renderProjectsGroupedByInitiative(
     for (const init of srcInitiatives) {
       const list = byKey.get(`${src.name}::${init.id}`) || [];
       if (list.length === 0) continue;
-      perInitSections.push(renderInitiativeBlock(init, list, sourceByName, resumeSkillPath, ids));
+      perInitSections.push(renderInitiativeBlock(init, list, sourceByName, resumeSkillInstalled, ids));
     }
 
     const ungrouped = byKey.get(`${src.name}::_ungrouped`) || [];
     if (ungrouped.length > 0) {
-      perInitSections.push(renderUngroupedBlock(src.name, ungrouped, sourceByName, resumeSkillPath, ids));
+      perInitSections.push(renderUngroupedBlock(src.name, ungrouped, sourceByName, resumeSkillInstalled, ids));
     }
 
     if (perInitSections.length === 0) continue;
@@ -364,11 +407,11 @@ function renderInitiativeBlock(
   init: InitiativeWithSource,
   projects: ProjectWithSource[],
   sourceByName: Map<string, Source>,
-  resumeSkillPath: string | null,
+  resumeSkillInstalled: boolean,
   ids: { next: number }
 ): string {
   const statusColor = STATUS_COLORS[init.status] || "gray";
-  const rows = projects.map((p) => renderProjectRow(p, sourceByName, resumeSkillPath, ids)).join("\n");
+  const rows = projects.map((p) => renderProjectRow(p, sourceByName, resumeSkillInstalled, ids)).join("\n");
   return `
     <div class="initiative-block">
       <h3>
@@ -386,10 +429,10 @@ function renderUngroupedBlock(
   sourceName: string,
   projects: ProjectWithSource[],
   sourceByName: Map<string, Source>,
-  resumeSkillPath: string | null,
+  resumeSkillInstalled: boolean,
   ids: { next: number }
 ): string {
-  const rows = projects.map((p) => renderProjectRow(p, sourceByName, resumeSkillPath, ids)).join("\n");
+  const rows = projects.map((p) => renderProjectRow(p, sourceByName, resumeSkillInstalled, ids)).join("\n");
   return `
     <div class="initiative-block initiative-block-ungrouped">
       <h3>
@@ -405,7 +448,7 @@ function renderUngroupedBlock(
 function renderProjectRow(
   p: ProjectWithSource,
   sourceByName: Map<string, Source>,
-  resumeSkillPath: string | null,
+  resumeSkillInstalled: boolean,
   ids: { next: number }
 ): string {
   const src = sourceByName.get(p._source);
@@ -423,7 +466,7 @@ function renderProjectRow(
     ? truncate(p.description.replace(/\n/g, " "), 160)
     : "";
   const promptId = `resume-prompt-${ids.next++}`;
-  const prompt = resumePrompt(p, resumeSkillPath);
+  const prompt = resumePrompt(p, resumeSkillInstalled);
 
   return `
     <article class="project-row">
@@ -443,7 +486,7 @@ function renderProjectRow(
         ${tags}
         ${p.client ? `<span class="tag tag-client">${escapeHtml(p.client)}</span>` : ""}
         <span class="resume-wrap">
-          <button class="resume-copy" data-resume-for="${promptId}" title="Copy the resume prompt for any harness">Resume</button>
+          <button class="resume-copy" data-resume-for="${promptId}" title="Copy a prompt you can paste into any coding agent to resume this project">Copy resume prompt</button>
           <pre hidden id="${promptId}">${escapeHtml(prompt)}</pre>
         </span>
       </div>
