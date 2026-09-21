@@ -103,14 +103,16 @@ function compareVersions(a: string, b: string): number {
   const pa = a.split(/[.\-+]/);
   const pb = b.split(/[.\-+]/);
   for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
-    const na = Number.parseInt(pa[i] ?? "", 10);
-    const nb = Number.parseInt(pb[i] ?? "", 10);
-    const aNum = Number.isNaN(na);
-    const bNum = Number.isNaN(nb);
-    if (aNum && bNum) continue;
-    if (aNum) return -1;
-    if (bNum) return 1;
-    if (na !== nb) return na - nb;
+    // Entirely-digits segments only: leading-digit content hashes are
+    // not versions and must never outrank a real release.
+    const l = pa[i] ?? "";
+    const r = pb[i] ?? "";
+    const lNum = /^\d+$/.test(l);
+    const rNum = /^\d+$/.test(r);
+    if (!lNum && !rNum) continue;
+    if (!lNum) return -1;
+    if (!rNum) return 1;
+    if (Number(l) !== Number(r)) return Number(l) - Number(r);
   }
   return 0;
 }
@@ -202,14 +204,30 @@ export interface SyncStatus {
 let refreshInflight = false;
 let lastRefreshStartedAt = 0;
 
-function runScript(
+/** Exported for testing: every failure mode resolves, none rejects. */
+export function runScript(
   script: string,
   args: string[],
   timeoutMs: number
 ): Promise<{ code: number; stdout: string; stderr: string }> {
   return new Promise((resolve) => {
+    let executable: string;
+    try {
+      executable = synthesisPythonBin();
+    } catch (err) {
+      // Unprepared runtime (or a stale SYNTHESIS_PYTHON_BIN override) must
+      // degrade to a failed run, never to a rejection: refreshDetector is
+      // fire-and-forget from getSyncStatus, so a rejection would crash the
+      // process as an unhandled rejection.
+      resolve({
+        code: 1,
+        stdout: "",
+        stderr: err instanceof Error ? err.message : String(err),
+      });
+      return;
+    }
     execFile(
-      synthesisPythonBin(),
+      executable,
       [script, ...args],
       { env: synthesisPythonEnv(), timeout: timeoutMs, maxBuffer: 8 * 1024 * 1024 },
       (err: any, stdout: any, stderr: any) => {
@@ -257,7 +275,10 @@ export function getSyncStatus(): SyncStatus {
     ageMs > REFRESH_STALE_MS &&
     Date.now() - lastRefreshStartedAt > REFRESH_STALE_MS
   ) {
-    void refreshDetector();
+    // Fire-and-forget: a rejection here is an unhandled rejection, which
+    // kills the process. runScript never rejects, but this guards the
+    // call shape itself against future async failures.
+    void refreshDetector().catch(() => {});
   }
 
   const alerts: any[] = checkpoint?.alerts ?? [];
