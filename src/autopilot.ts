@@ -80,12 +80,21 @@ export function operatorScript(): string {
   }
   return containedReal(join(skill, "scripts/operator_status.py"), skill, false);
 }
-export function boundedCommand(executable: string, args: string[], timeout = READ_TIMEOUT_MS): Promise<string> {
+export function boundedCommand(executable: string, args: string[], timeout = READ_TIMEOUT_MS, phase = "Operator reader"): Promise<string> {
   return new Promise((done, reject) => {
     execFile(executable, args, {env: {...synthesisPythonEnv(), GIT_OPTIONAL_LOCKS: "0", GIT_TERMINAL_PROMPT: "0", GIT_NO_LAZY_FETCH: "1"}, encoding: "utf8", timeout,
       maxBuffer: MAX_OUTPUT_BYTES + 4096, killSignal: "SIGKILL", shell: false}, (error, stdout, stderr) => {
-        if (error) return reject(new Error("Verified operator read failed or exceeded its time/output bound. " + (String(stderr || stdout || "").trim().slice(0, 2048) || "Ask the owner to doctor the runtime and selected run.")));
-        if (Buffer.byteLength(stdout) > MAX_OUTPUT_BYTES) return reject(new Error("Operator output exceeds the read bound."));
+        if (error) {
+          const detail = String(stderr || stdout || "").trim().slice(0, 2048);
+          let reason: string;
+          if (error.code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER") reason = "exceeded its output bound";
+          else if (error.killed && error.signal === "SIGKILL") reason = `exceeded its ${timeout} ms time bound`;
+          else if (error.signal) reason = `terminated by signal ${error.signal}`;
+          else if (typeof error.code === "number") reason = `exited with code ${error.code}`;
+          else reason = `could not start (${error.code || "unknown launch error"})`;
+          return reject(new Error(`${phase} ${reason}${detail ? ": " + detail : "."}`));
+        }
+        if (Buffer.byteLength(stdout) > MAX_OUTPUT_BYTES) return reject(new Error(`${phase} exceeded its output bound.`));
         done(stdout);
       });
   });
@@ -140,7 +149,7 @@ export async function readOperator(source: Source, id: string, runId?: string, p
     const before = createHash("sha256").update(readFileSync(script)).digest("hex");
     // Use the same owned runtime verifier as every Python-backed Console action,
     // with a finite asynchronous boundary around both resolution and journal read.
-    const python = (await boundedCommand("bash", [resolve(import.meta.dir, "../scripts/python-runtime.sh"), "resolve"])).trim();
+    const python = (await boundedCommand("bash", [resolve(import.meta.dir, "../scripts/python-runtime.sh"), "resolve"], READ_TIMEOUT_MS, "Runtime verification")).trim();
     if (!isAbsolute(python) || python.includes("\n") ||
         (process.env.SYNTHESIS_PYTHON_BIN?.trim() && process.env.SYNTHESIS_PYTHON_BIN.trim() !== python)) throw new Error("Verified Python runtime selection differs. Ask your agent to repair Console setup.");
     const output = await boundedCommand(python, ["-I", "-B", script, "--index", index, "--project-id", id,
