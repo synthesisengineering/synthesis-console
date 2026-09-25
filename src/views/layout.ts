@@ -28,7 +28,7 @@ export function layout(opts: {
     opts.activeSourceNames.some((n) => opts.sources.find((s) => s.name === n)?.demo === true);
 
   const demoBadge = isDemoActive ? '<span class="badge badge-demo">DEMO</span>' : "";
-  const nav = buildNav(opts.currentPath || "");
+  const nav = buildNav(opts.currentPath || "", opts.demoMode);
   const picker = buildSourcePicker(visibleSources, opts.activeSourceNames, opts.demoMode);
 
   return `<!DOCTYPE html>
@@ -56,9 +56,9 @@ export function layout(opts: {
       </ul>
       <ul>
         ${nav}
-        <li><a href="/sync" id="sync-chip" class="sync-chip" title="Repo sync status">●<span class="sync-chip-count"></span></a></li>
+        ${opts.demoMode ? "" : `<li><a href="/sync" id="sync-chip" class="sync-chip" title="Repo sync status">●<span class="sync-chip-count"></span></a></li>
         <li><a href="/context" id="context-chip" class="sync-chip" title="Context integrity">◆<span class="sync-chip-count"></span></a></li>
-        <li><a href="/conformance" id="conformance-chip" class="sync-chip" title="Agent conformance">▲<span class="sync-chip-count"></span></a></li>
+        <li><a href="/conformance" id="conformance-chip" class="sync-chip" title="Agent conformance">▲<span class="sync-chip-count"></span></a></li>`}
         ${picker}
       </ul>
     </nav>
@@ -74,8 +74,9 @@ export function layout(opts: {
 </html>`;
 }
 
-function buildNav(currentPath: string): string {
+function buildNav(currentPath: string, demoMode: boolean): string {
   const links = [
+    { href: "/autopilot", label: "Autopilot", match: "/autopilot" },
     { href: "/initiatives", label: "Initiatives", match: "/initiatives" },
     { href: "/projects", label: "Projects", match: "/projects" },
     { href: "/plans", label: "Plans", match: "/plans" },
@@ -87,6 +88,7 @@ function buildNav(currentPath: string): string {
   ];
 
   return links
+    .filter(link => !demoMode || !["/context", "/conformance"].includes(link.href))
     .map((link) => {
       const active = currentPath.startsWith(link.match) ? ' class="active"' : "";
       return `<li><a href="${link.href}"${active}>${link.label}</a></li>`;

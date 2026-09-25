@@ -84,6 +84,8 @@ def _build(source, output, core, provenance, environment):
                      os=["darwin", "linux"], engines={"bun": ">=1.3.13"}, publishConfig={"access":"public"})
     (package / "package.json").write_text(json.dumps(published, indent=2) + "\n")
     subprocess.run(["bun", "build", "src/index.ts", "--target=bun", "--outfile", str(package / "app/index.js")], cwd=source, env=environment, check=True)
+    # The CLI invokes this module without a source tree or node_modules present.
+    subprocess.run(["bun", "build", "src/autopilot-supervisor.ts", "--target=bun", "--outfile", str(package / "app/autopilot-supervisor.js")], cwd=source, env=environment, check=True)
     archive = output / ("synthesis-console-" + version + ".tar.gz")
     with archive.open("xb") as stream, gzip.GzipFile(filename="",mode="wb",fileobj=stream,mtime=0) as gz:
         with tarfile.open(fileobj=gz,mode="w") as tar:

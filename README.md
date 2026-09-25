@@ -174,6 +174,10 @@ Setup: `SLACK_USER_TOKEN_RAJIV='xoxp-...' bun run setup-slack <source-name>` doe
 Choose a channel at [the downloads hub](https://synthesiswork.org/download/).
 The published packages install an inert command. They do not change your
 configuration, enable login services, or register agent hooks.
+When a command runs, Bun may write its own content-addressed transpiler cache;
+this does not activate or configure Synthesis. Ephemeral test environments can
+disable that cache with Bun's documented `BUN_RUNTIME_TRANSPILER_CACHE_PATH=0`
+[runtime setting](https://bun.com/docs/runtime/environment-variables).
 
 ```sh
 # Homebrew
@@ -522,3 +526,104 @@ bun run demo   # Run with sample data
 ---
 
 Built by [Rajiv Pant](https://rajiv.com). Part of the [synthesis engineering](https://synthesisengineering.org) ecosystem.
+
+## Autopilot work and questions
+
+Open **Autopilot** to select an active-source project, read its run status, or
+prepare a first task in plain language. The agent prepares its plan, profile and
+acceptance criteria. The Console does not require users to author a contract.
+
+A run page reads the existing owner-validated journal each time. Working,
+waiting, unhealthy, completed and cancelled are **recorded** states. Native
+liveness, current outcome acceptance, notification delivery and the version
+loaded by an existing agent remain unknown until their owners verify them.
+Measured progress and unmeasured notes appear separately. The resource ledger
+shows estimates and unresolved accounting without claiming a provider invoice.
+
+The **Question fallback** page is independent of the native task pane. It shows
+pending durable questions even when that pane is hidden. Answers, recovery and
+cancellation controls prepare requests for the existing native owner. Copying
+is explicitly **not submitted** and **not performed**. Requests bind the run and
+observed revision; stale execution is refused by the controller. Terminal runs
+retain unfinished obligations without offering a restart that their state
+machine does not support. Maintenance buttons prepare doctor, repair, update,
+safe pause and cold-recovery requests through existing owners.
+
+The operator surface provides GET HTML and JSON routes only. It neither creates
+an actor nor mints approval. Existing journal-owned supervision requests can be
+shown when the matching supervision reader is installed; a lease is not a wake,
+and Console automatic native launch is unavailable. No extra daemon or queue is
+created. This fallback depends on the Console being reachable; it does not prove
+an OS alert was delivered or that work survives app exit, logout or reboot.
+
+Python reads use the Console's verified setup runtime, a fixed operator helper,
+argument vectors, an eight-second limit per subprocess and a one-MiB output
+limit. At most two reads run at once. Detail routes gate inactive sources before
+reading paths. Registry selection uses the existing PM causal resolver without
+fetching, fast-forwarding or refreshing coordination. It can select a newer
+attributed worktree; conflicts remain explicit and never fall back to a stale
+canonical journal. Registry, project and run redirects are refused.
+
+Run discovery returns eight recent entries per page (at most 32). Older runs and
+questions remain accessible through page links; no history is deleted or archived.
+Filesystem timestamps guide ordering only. Cursors bind the inventory and page
+size, so a concurrent change asks for a first-page refresh. Question coverage is
+explicitly limited to the displayed page. The 4,096-entry inventory ceiling and
+per-journal 32 MiB bound retain a finite read; exact-run selection bypasses the
+inventory scan. Oversized or unreadable evidence produces an explicit diagnostic
+rather than an empty success. Readers require the
+matching `synthesis-autopilot/scripts/operator_status.py`; an older installation
+gets an actionable unavailable state. `SYNTHESIS_AUTOPILOT_DIR` is an operator-set
+skill-directory override for source testing, never a request parameter.
+## Optional owner-prepared continuation: capability boundary
+
+The operator views and private delivery lifecycle are implemented. **Automatic
+Console continuation is unavailable until a verified full process-tree custody
+backend is implemented and qualified.** Enrollment and submission refuse before
+storing a bearer or starting a helper. There is no browser, environment or CLI
+option that bypasses this check. Installing or starting Console creates no grant,
+service enrollment or native turn.
+
+Independent local process tests found that a helper can spawn a detached child
+and exit before a process sample observes the child. Process-group signals and
+ancestry sampling cannot establish complete cleanup in that case. macOS kqueue
+NOTE_TRACK is unsupported, and launchd's process-group cleanup does not contain
+setsid escapes. A direct child-registration handshake also does not contain
+uninstrumented native grandchildren. Those are concrete capability requirements;
+the adapter does not mark unknown containment as healthy or operationally ready.
+
+`supervision status` and the read-only
+`/api/autopilot/supervision-health` endpoint expose local delivery counts,
+`automatic_continuation: UNAVAILABLE`, `process_tree_custody: UNAVAILABLE` and
+`operational_ready: false`. `active_local_process` describes this process;
+activity in another Console process is explicitly unknown. Source tests use a
+clearly labeled synthetic custody seam to exercise the remaining mechanics,
+including actual interpreter/owner imports and private stdin. They do not enable
+or qualify production continuation.
+
+The retained delivery implementation uses an explicit installed release and
+Console Python setup generation, a mode0700 private directory, mode0600
+single-link credentials, stable-byte checks and an enrollment-wide OS lock.
+A five-field request contains `project`, `run_id`, `permit_id`, `token` and
+`runtime_root`. Bearers belong only in private stdin and temporary credential
+files, never command arguments, environment variables, browser requests or logs.
+A finite 64-record retention limit refuses additional intake without dropping
+evidence; claimed delivery never automatically replays. The run journal remains
+the authority for grants, native cancellation, current admission and outcomes.
+
+`supervision stop` closes local admission. `supervision uninstall` retires
+unclaimed credentials while preserving secret-free pointers and journal
+cancellation tombstones; neither removes Console's existing launchd/systemd
+service. After the native owner reconciles or cancels a permit, `supervision
+reconcile` reads the verified journal and retires the matching local fence. It
+cannot grant a retry, mutate the journal or manufacture native identity. Upgrade
+preserves unresolved delivery and requires renewed generation verification.
+
+Completing automatic continuation still requires an actual OS or native custody
+mechanism that prevents descendant escape, bounds shutdown after parent loss,
+and distinguishes pre-existing, owned and explicitly transferred background work.
+The actual Console-to-admitted-owner positive join and per-platform service
+acceptance must then pass under that mechanism. Native PM recovery, subsequent
+wakes, app exit, logout, reboot, offline and multi-machine survival each require
+their own evidence. Read-only status and the separately qualified native-owner
+one-shot consumer remain usable within their verified capabilities.

@@ -7,8 +7,29 @@ const root = resolve(import.meta.dir, "..");
 const cli = join(root, "bin/synthesis-console");
 function fixture() { return mkdtempSync(join(realpathSync(tmpdir()), "console-distribution-")); }
 function run(args: string[], home: string) {
-  return spawnSync(cli, args, { cwd: home, env: { ...process.env, HOME: home, SYNTHESIS_HOME: home }, encoding: "utf8" });
+  // Bun's documented transpiler cache is unrelated to Synthesis setup. Keep
+  // these zero-write fixtures hermetic; the default-runtime control below
+  // separately verifies that only Bun's own cache may be created.
+  return spawnSync(cli, args, { cwd: home, env: { ...process.env, HOME: home, SYNTHESIS_HOME: home, BUN_RUNTIME_TRANSPILER_CACHE_PATH: "0" }, encoding: "utf8" });
 }
+test("default CLI runtime may cache Bun output but cannot configure Synthesis", () => {
+  const home=fixture();
+  try {
+    const env={...process.env,HOME:home,SYNTHESIS_HOME:home,XDG_CACHE_HOME:join(home,".cache")};
+    delete env.BUN_RUNTIME_TRANSPILER_CACHE_PATH;
+    const result=spawnSync(cli,["--help"],{cwd:home,env,encoding:"utf8"});
+    expect(result.status,result.stderr).toBe(0);
+    function inspect(directory:string,relative="") {
+      for(const entry of readdirSync(directory,{withFileTypes:true})) {
+        const name=relative+entry.name;
+        expect(["Library","Library/Caches","Library/Caches/bun",".cache",".cache/bun"].includes(name)||name.startsWith("Library/Caches/bun/")||name.startsWith(".cache/bun/")).toBe(true);
+        if(entry.isDirectory())inspect(join(directory,entry.name),name+"/");
+        else expect(entry.isFile()&&name.endsWith(".pile")).toBe(true);
+      }
+    }
+    inspect(home);
+  } finally {rmSync(home,{recursive:true,force:true});}
+});
 test("CLI help and version are inert from an unrelated directory", () => {
   const home=fixture();
   try {

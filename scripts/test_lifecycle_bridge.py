@@ -31,7 +31,9 @@ def bridge(tmp_path):
     inventory=package/'core-files.json';inventory.write_text(json.dumps({'bin/synthesis':{'sha256':hashlib.sha256(launcher.read_bytes()).hexdigest(),'mode':0o755}}))
     def run(args,**environment):
         return subprocess.run(['bun',str(package/'scripts/console-cli.ts'),*args],cwd=home,
-                              env=dict(os.environ,HOME=str(home),**environment),capture_output=True,text=True)
+                              # Isolate Bun's documented runtime cache while
+                              # asserting that lifecycle failures have no writes.
+                              env=dict(os.environ,HOME=str(home),BUN_RUNTIME_TRANSPILER_CACHE_PATH='0',**environment),capture_output=True,text=True)
     return home,package,run
 
 def test_help_and_rejected_operations_are_inert(bridge):

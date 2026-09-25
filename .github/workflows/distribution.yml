@@ -28,7 +28,7 @@ jobs:
         with:
           repository: synthesisengineering/synthesis-skills
           # Source fixtures are pinned; release artifacts bind the final published core separately.
-          ref: 272e87b3a3e998025e16570b076089f6c1bf8480
+          ref: ced1472951d0685db0cb9c42e439faa74481f743
           path: .test-core-source
       - run: bun install --frozen-lockfile --ignore-scripts
       - run: python -m pip install pytest
