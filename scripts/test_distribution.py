@@ -71,8 +71,189 @@ def test_package_is_inert_with_bundled_dependencies(distribution):
     assert metadata['name']=='@synthesiswork/console'
     assert not metadata.get('scripts') and not metadata.get('dependencies')
     assert (root/'npm/app/index.js').is_file()
+    assert (root/'npm/app/autopilot-supervisor.js').is_file()
     assert record['archive']['sha256'] in (root/'synthesis-console.rb').read_text()
     assert record['archive']['sha256'] in (root/'install.sh').read_text()
+
+def test_packaged_supervisor_resolves_real_immutable_owner_dependencies(distribution,tmp_path):
+    """Actual packaged CLI/runtime/owner modules; synthetic custody/activation, absent grant.
+
+    This checks local dependency custody and refusal, not a native launch,
+    provider account, production installation or machine-survival qualification.
+    """
+    import uuid,time,signal
+    root,record=distribution;home=tmp_path/'home';env=environment(home)
+    env.pop('SYNTHESIS_PUBLIC_SKILLS_SOURCE',None)
+    env.pop('SYNTHESIS_ACTIVE_DESCRIPTOR',None)
+    env.pop('SYNTHESIS_PYTHON_BIN',None)
+    binary=root/'npm/bin/synthesis-console'
+    setup=subprocess.run([str(binary),'setup','--no-dormant-core'],cwd=home,env=env,capture_output=True,text=True,timeout=30)
+    assert setup.returncode==0,setup.stdout+setup.stderr
+    ready=subprocess.check_output(['bash',str(root/'npm/scripts/python-runtime.sh'),'resolve'],env=env,text=True).strip()
+    core=Path(os.environ['SYNTHESIS_CORE_SOURCE'])
+    version=json.loads((core/'.codex-plugin/plugin.json').read_text())['version']
+    generation=home/'.codex/plugins/cache/synthesis-engineering/synthesis-skills'/version
+    for directory in ['skills','.claude-plugin','.codex-plugin']:
+        shutil.copytree(core/directory,generation/directory,ignore=shutil.ignore_patterns('__pycache__','.pytest_cache','*.pyc'))
+    # The actual release owner validates the synthetic receipt, whole tree,
+    # interpreter and launcher. No verifier or consumer is stubbed.
+    provision=r'''
+import sys,json,hashlib
+from pathlib import Path
+sys.path.insert(0,sys.argv[1]+'/skills/synthesis-onboarding/scripts')
+import release_runtime as runtime,system_contract
+root=Path(sys.argv[1]);pointer=runtime.descriptor_path();pointer.parent.mkdir(parents=True,exist_ok=True)
+pointer.with_name(pointer.name+'.lock').touch()
+data={'schema_version':1,'version':sys.argv[2],'channel':'stable','ref':'stable','commit':'1'*40,'tree':'2'*40,
+ 'content_digest':runtime.tree_digest(root),'digest_algorithm':'sha256-tree-v1','tree_policy':'regular-files-and-directories-no-links-v1',
+ 'source_url':'https://example.test/synthetic-fixture.git','resolved_at':'2026-09-25T00:00:00Z',
+ 'release_root':str(root),'interpreter':runtime.interpreter_pin(sys.executable)}
+launcher=Path.home()/'fixture-bin/synthesis';launcher.parent.mkdir();content=system_contract.launcher_bytes(pointer,data['interpreter'])
+launcher.write_bytes(content);launcher.chmod(0o755)
+data['launcher']={'path':str(launcher),'runtime_schema':1,'sha256':hashlib.sha256(content).hexdigest()}
+pointer.write_text(json.dumps(data));runtime.verified_release()
+'''
+    fixture_env=dict(env,SYNTHESIS_RUNTIME_POLICY='packaged-python-v1')
+    created=subprocess.run([ready,'-I','-B','-c',provision,str(generation),version],env=fixture_env,capture_output=True,text=True,timeout=30)
+    assert created.returncode==0,created.stdout+created.stderr
+    def production(*args,input=None):
+        return subprocess.run([str(binary),'supervision',*args],input=input,cwd=home,env=env,capture_output=True,text=True,timeout=15)
+    private=home/'.local/state/synthesis-console/supervision'
+    unavailable=production('enroll');assert unavailable.returncode!=0 and not private.exists()
+    view=json.loads(production('status').stdout)
+    assert view['automatic_continuation']=='UNAVAILABLE' and view['operational_ready'] is False
+    # The production gate has no CLI/env bypass. This fixture subclasses the
+    # bundled module solely to qualify the dependency/refusal chain below a
+    # declared synthetic custody seam, never native containment or a service.
+    driver=tmp_path/'synthetic-custody.ts'
+    driver.write_text('import {Supervisor} from '+json.dumps(str(root/'npm/app/autopilot-supervisor.js'))+';\n'
+        'class SyntheticCustody extends Supervisor {requireCustody() {}}\n'
+        'const s=new SyntheticCustody();const action=process.argv[2];\n'
+        'if(action==="enroll")await s.enroll();else if(action==="submit")await s.submit(JSON.parse(await Bun.stdin.text()));\n'
+        'else if(action==="tick")await s.tick();console.log(JSON.stringify(s.status()));\n')
+    def cli(*args,input=None):
+        return subprocess.run(['bun',str(driver),*args],input=input,cwd=home,env=env,capture_output=True,text=True,timeout=15)
+    enrolled=cli('enroll');assert enrolled.returncode==0,enrolled.stdout+enrolled.stderr
+    receipt=json.loads((private/'enrollment.json').read_text())
+    assert receipt['generation']['python']==ready
+    assert receipt['generation']['helper']==str(generation/'skills/synthesis-autopilot/scripts/prepared_native_launch.py')
+    project=home/'isolated-project';project.mkdir()
+    request={'project':str(project),'run_id':str(uuid.uuid4()),'permit_id':'synthetic-absent-grant','token':'a'*64,'runtime_root':str(home/'isolated-runtime')}
+    # Before any uncertain delivery exists, sibling drift must independently
+    # invalidate the enrolled whole release. Restoring exact bytes re-admits it.
+    sibling=generation/'skills/synthesis-autopilot/scripts/run_state.py';original=sibling.read_bytes()
+    sibling.write_bytes(original+b'\n# fixture drift\n')
+    assert cli('submit',input=json.dumps(request)).returncode!=0
+    assert not list(private.glob('*.ready')) and not list(private.glob('*.claimed'))
+    sibling.write_bytes(original)
+    submitted=cli('submit',input=json.dumps(request));assert submitted.returncode==0,submitted.stdout+submitted.stderr
+    # The bundled adapter consumes the real owner below synthetic custody.
+    # The deliberately absent journal must refuse before any native process.
+    process=subprocess.Popen(['bun',str(driver),'tick'],cwd=home,env=env,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,start_new_session=True)
+    try:
+        deadline=time.monotonic()+15
+        while time.monotonic()<deadline:
+            rows=[json.loads(path.read_text()) for path in private.glob('*.json') if path.name!='enrollment.json']
+            if any(row.get('delivery')=='uncertain' for row in rows):break
+            if process.poll() is not None:break
+            time.sleep(.05)
+        assert any(row.get('delivery')=='uncertain' for row in rows),rows
+        status=cli('status');assert status.returncode==0,status.stderr
+        view=json.loads(status.stdout);assert not view['healthy'] and view['counts']['uncertain']==1
+        assert not list(private.glob('*.ready')) and not list(private.glob('*.claimed'))
+        assert request['token'] not in ''.join(path.read_text() for path in private.glob('*.json'))
+    finally:
+        if process.poll() is None:os.killpg(process.pid,signal.SIGTERM)
+        try:output,error=process.communicate(timeout=12)
+        except subprocess.TimeoutExpired:
+            os.killpg(process.pid,signal.SIGKILL);output,error=process.communicate(timeout=5)
+        assert request['token'] not in output+error
+
+def test_packaged_delivery_consumes_real_owner_journal_once(distribution,tmp_path):
+    """Actual package/stdin/PM/CAS join, with explicit synthetic native custody.
+
+    The isolated board, native transcript, repo attribution and transport are
+    fixture inputs. Neither whole-tree containment nor native qualification is
+    asserted. No PM admission, owner reducer, journal or delivery step is mocked.
+    """
+    root,_=distribution;home=tmp_path/'home';env=environment(home)
+    core=Path(os.environ['SYNTHESIS_CORE_SOURCE']).resolve()
+    facts=tmp_path/'facts.json';setup=tmp_path/'prepare.py'
+    setup.write_text('''
+import sys,json,os
+from pathlib import Path
+import pytest
+core=Path(sys.argv[1]);sys.path.insert(0,str(core/'skills/synthesis-autopilot/scripts'))
+from test_controller import world,engine,facade,attribute_recovery_fixture
+from test_prepared_native_launch import prepared,TOKEN
+mp=pytest.MonkeyPatch();w=world.__wrapped__(Path(sys.argv[2]),mp)
+e=engine.__wrapped__(mp);f=facade.__wrapped__(e);state=prepared(f,w)
+attribute_recovery_fixture(w)
+Path(sys.argv[3]).write_text(json.dumps({'request':{'project':str(w['project']),'run_id':state['run_id'],
+ 'permit_id':'permit1','token':TOKEN,'runtime_root':str(w['runtime'])},'owner':state['owner'],
+ 'claude_config':os.environ['CLAUDE_CONFIG_DIR'],'revision':state['revision']}))
+''')
+    isolated=tmp_path/'actual-owner';isolated.mkdir()
+    seed=subprocess.run([sys.executable,str(setup),str(core),str(isolated),str(facts)],env=env,capture_output=True,text=True,timeout=45)
+    assert seed.returncode==0,seed.stdout+seed.stderr
+    info=json.loads(facts.read_text());env['CLAUDE_CONFIG_DIR']=info['claude_config']
+    helper=tmp_path/'synthetic-native-only.py'
+    helper.write_text('''
+import sys
+from pathlib import Path
+import pytest
+sys.path.insert(0,'''+repr(str(core/'skills/synthesis-autopilot/scripts'))+''')
+# Only the native boundary is synthetic. The actual ordinary stdin consumer
+# performs admission, one-use CAS, issuer fencing, attribution and observation.
+import autopilot
+autopilot.engine()
+from test_prepared_native_launch import synthetic_transport
+synthetic_transport(pytest.MonkeyPatch(),None)
+import prepared_native_launch
+raise SystemExit(prepared_native_launch.main())
+''')
+    generation={'python':sys.executable,'helper':str(helper),
+        'helper_sha256':hashlib.sha256(helper.read_bytes()).hexdigest(),
+        'release_root':str(core),'release_digest':'a'*64,
+        'console_version':json.loads((root/'npm/package.json').read_text())['version']}
+    driver=tmp_path/'actual-owner-join.ts'
+    driver.write_text('import {Supervisor} from '+json.dumps(str(root/'npm/app/autopilot-supervisor.js'))+';\n'
+        'class SyntheticCustody extends Supervisor {requireCustody() {}}\n'
+        'const s=new SyntheticCustody({resolveGeneration:async()=>('+json.dumps(generation)+')});\n'
+        'const action=process.argv[2];if(action==="enroll")await s.enroll();\n'
+        'else if(action==="submit")await s.submit(JSON.parse(await Bun.stdin.text()));\n'
+        'else if(action==="tick")await s.tick();console.log(JSON.stringify(s.status()));\n')
+    def invoke(action,request=None):
+        return subprocess.run(['bun',str(driver),action],input=json.dumps(request) if request else None,
+            cwd=home,env=env,capture_output=True,text=True,timeout=45)
+    enrollment=invoke('enroll');assert enrollment.returncode==0,enrollment.stdout+enrollment.stderr
+    sent=invoke('submit',info['request']);assert sent.returncode==0,sent.stdout+sent.stderr
+    consumed=invoke('tick');assert consumed.returncode==0,consumed.stdout+consumed.stderr
+    status=json.loads(consumed.stdout);assert status['counts']['delivered']==1,status
+    replay=invoke('submit',info['request']);assert replay.returncode!=0
+    private=home/'.local/state/synthesis-console/supervision'
+    assert not list(private.glob('*.ready')) and not list(private.glob('*.claimed'))
+    assert info['request']['token'] not in ''.join(p.read_text() for p in private.glob('*.json'))
+    verify='''
+import sys,json
+from pathlib import Path
+sys.path.insert(0,sys.argv[1]+'/skills/synthesis-autopilot/scripts')
+import autopilot;autopilot.engine()
+import run_state
+info=json.loads(Path(sys.argv[2]).read_text());r=info['request']
+state=run_state.load_run(Path(r['project']),r['run_id'])
+events=[row for row in run_state._events(Path(r['project']),r['run_id']) if row['command'] in
+ {'native.launch.reserve','native.launch.submit','native.launch.observe'}]
+assert len(events)==3
+assert all(x['actor']['kind']=='prepared-native-launch' and x['actor']['native_actor_authenticated'] is False for x in events)
+assert state['owner']==info['owner'] and state['status']!='completed'
+assert state['extensions']['prepared_native_launch']['permits']['permit1']['status']=='observed'
+assert state['revision']==info['revision']+3
+print(json.dumps({'service_events':len(events),'task_accepted':False,'owner_preserved':True}))
+'''
+    checked=subprocess.run([sys.executable,'-I','-B','-c',verify,str(core),str(facts)],env=env,capture_output=True,text=True,timeout=30)
+    assert checked.returncode==0,checked.stdout+checked.stderr
+    assert json.loads(checked.stdout)['service_events']==3
 
 def test_homebrew_uses_the_official_bun_formula_and_runtime(distribution):
     root,record=distribution
@@ -112,6 +293,11 @@ def test_actual_consumers_help_setup_optout_and_integrity(distribution,tmp_path,
     for args in [['--version'],['--help'],['synthesis','--help'],['setup','--no-dormant-core']]:
         r=subprocess.run([str(binary),*args],cwd=home,env=env,capture_output=True,text=True)
         assert r.returncode==0,r.stdout+r.stderr
+    status=subprocess.run([str(binary),'supervision','status'],cwd=home,env=env,capture_output=True,text=True,timeout=10)
+    assert status.returncode==0,status.stdout+status.stderr
+    assert json.loads(status.stdout)['lifecycle']=='disabled'
+    refused=subprocess.run([str(binary),'supervision','submit'],input=json.dumps({'token':'DO-NOT-PRINT-TOKEN'}),cwd=home,env=env,capture_output=True,text=True,timeout=10)
+    assert refused.returncode!=0 and 'DO-NOT-PRINT-TOKEN' not in refused.stdout+refused.stderr
     resolved=subprocess.run(['bash',str(package/'scripts/python-runtime.sh'),'resolve'],env=env,capture_output=True,text=True)
     assert resolved.returncode==0,resolved.stderr
     ready=Path(resolved.stdout.strip())
@@ -165,10 +351,23 @@ def test_curl_preserves_modes_and_pending_recovery_evidence(distribution,tmp_pat
         assert target.stat().st_mode&0o777==0o644 and receipt.read_bytes()==before
     else:assert pending.exists() and pending.read_bytes()==before and not receipt.exists()
 
-def test_bundled_demo_serves_from_unrelated_directory(distribution,tmp_path):
+@pytest.mark.parametrize('mode',['demo','start'])
+def test_bundled_demo_serves_from_unrelated_directory(distribution,tmp_path,mode):
     import selectors,time,signal
     root,record=distribution;home=tmp_path/'home';env=environment(home);env['PORT']='19810'
-    process=subprocess.Popen([str(root/'npm/bin/synthesis-console'),'demo'],cwd=home,env=env,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,start_new_session=True)
+    if mode=='start':
+        # A genuinely configured ordinary server is the positive control;
+        # an empty home deliberately falls back to strict demonstration mode.
+        sample=home/'sample-source';sample.mkdir()
+        settings=home/'.synthesis/console.yaml';settings.parent.mkdir()
+        settings.write_text(json.dumps({'sources':[{'name':'sample','root':str(sample),'projects_dir':'projects'}]}))
+    else:
+        # A real-looking retained inventory must remain invisible to the demo.
+        retained=home/'.local/state/synthesis-console/supervision'
+        retained.mkdir(parents=True,mode=0o700)
+        entry=retained/'enrollment.json'
+        entry.write_text(json.dumps({'schema_version':1,'lifecycle':'enrolled','generation':{}}));entry.chmod(0o600)
+    process=subprocess.Popen([str(root/'npm/bin/synthesis-console'),mode],cwd=home,env=env,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,start_new_session=True)
     try:
         selector=selectors.DefaultSelector();selector.register(process.stdout,selectors.EVENT_READ)
         output='';deadline=time.monotonic()+10
@@ -181,6 +380,39 @@ def test_bundled_demo_serves_from_unrelated_directory(distribution,tmp_path):
         for relative in ['/projects','/style.css','/favicon.svg','/vendor/pico-2.1.1.min.css']:
             with urllib.request.urlopen('http://127.0.0.1:'+match[1]+relative,timeout=5) as response:
                 assert response.status==200 and len(response.read())>20
+        try:
+            response=urllib.request.urlopen('http://127.0.0.1:'+match[1]+'/api/autopilot/supervision-health',timeout=5)
+        except urllib.error.HTTPError as error:
+            response=error
+        with response:
+            assert response.status==(404 if mode=='demo' else 200)
+            assert response.headers['Cache-Control']=='no-store, no-cache, must-revalidate, max-age=0'
+            assert response.headers['Pragma']=='no-cache' and response.headers['Expires']=='0'
+            if mode=='start':
+                health=json.load(response)
+                assert health['automatic_continuation']=='UNAVAILABLE' and health['operational_ready'] is False
+                assert not (home/'.local/state/synthesis-console/supervision').exists()
+        # The demonstration is a closed sample-data surface. It must not expose
+        # machine health or reach global refresh/checkpoint/audio mutation routes.
+        base='http://127.0.0.1:'+match[1]
+        with urllib.request.urlopen(base+'/autopilot',timeout=5) as response:
+            html=response.read().decode()
+        for chip in ('sync-chip','context-chip','conformance-chip'):
+            assert (f'id="{chip}"' in html)==(mode=='start')
+        for relative in ('/sync','/context','/conformance','/api/sync-status','/api/context-status','/api/conformance-status','/api/quiet-audio'):
+            try:
+                with urllib.request.urlopen(base+relative,timeout=5) as response: code=response.status
+            except urllib.error.HTTPError as error: code=error.code
+            assert code==(404 if mode=='demo' else 200),(mode,relative,code)
+        if mode=='demo':
+            before={str(p.relative_to(home)):p.read_bytes() for p in home.rglob('*') if p.is_file()}
+            for relative in ('/api/sync/refresh','/api/sync/checkpoint','/api/context/audit','/api/conformance/audit','/api/quiet-audio'):
+                request=urllib.request.Request(base+relative,data=b'{}',headers={'Content-Type':'application/json'},method='POST')
+                try:
+                    with urllib.request.urlopen(request,timeout=5) as response: code=response.status
+                except urllib.error.HTTPError as error: code=error.code
+                assert code==404,relative
+            assert before=={str(p.relative_to(home)):p.read_bytes() for p in home.rglob('*') if p.is_file()}
         check=subprocess.run(['lsof','-nP','-iTCP:'+match[1],'-sTCP:LISTEN'],capture_output=True,text=True) if shutil.which('lsof') else None
         if check:
             assert '127.0.0.1:' in check.stdout and '*:' not in check.stdout
@@ -318,7 +550,11 @@ def test_generated_dashboard_python_action_uses_verified_owned_runtime(distribut
     (home/'active-project.json').write_text(json.dumps({'project':str(source),'worktree':str(source)}))
     foreign=home/'foreign-import';foreign.mkdir();(foreign/'yaml.py').write_text('raise RuntimeError("wrong dependency")')
     env.update(PORT='19812',SYNTHESIS_CONFORMANCE_SOURCE_ROOT=str(source),SYNTHESIS_AGENT_CONFORMANCE_DIR=str(skill),PYTHONPATH=str(foreign))
-    process=subprocess.Popen([str(binary),'demo'],cwd=home,env=env,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,start_new_session=True)
+    # Machine diagnostics are an ordinary configured-server operation;
+    # strict demo intentionally cannot reach this Python mutation route.
+    settings=home/'.synthesis/console.yaml';settings.parent.mkdir(exist_ok=True)
+    settings.write_text(json.dumps({'sources':[{'name':'fixture','root':str(source),'projects_dir':'projects'}]}))
+    process=subprocess.Popen([str(binary),'start'],cwd=home,env=env,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,start_new_session=True)
     try:
         selector=selectors.DefaultSelector();selector.register(process.stdout,selectors.EVENT_READ)
         output='';match=None;deadline=time.monotonic()+10

@@ -145,4 +145,4 @@ def test_real_release_cli_and_packaged_demo(tmp_path, core):
     spec = importlib.util.spec_from_file_location('console_existing_consumer', ROOT / 'scripts/test_distribution.py')
     consumer = importlib.util.module_from_spec(spec); spec.loader.exec_module(consumer)
     demo = tmp_path / 'demo-home'; demo.mkdir()
-    consumer.test_bundled_demo_serves_from_unrelated_directory((output, record), demo)
+    consumer.test_bundled_demo_serves_from_unrelated_directory((output, record), demo, 'demo')

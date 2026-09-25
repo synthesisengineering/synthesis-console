@@ -3705,3 +3705,19 @@ body[data-cockpit-focus="true"] .cockpit-shell .cockpit-header {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+
+/* Operator view: local, recorded state and explicit handoff controls. */
+.ap-lead { font-size: 1.2rem; }
+.ap-actions { display: flex; flex-wrap: wrap; gap: .75rem; align-items: center; margin: 1rem 0; }
+.ap-actions button { margin: 0; width: auto; }
+.ap-run header { display: flex; flex-direction: column; gap: .3rem; }
+.ap-waiting { border-left: 4px solid #b88a19; }
+.ap-unhealthy, .ap-warning { border-left: 4px solid #b54d45; padding-left: 1rem; }
+.ap-working { border-left: 4px solid #408594; }
+.ap-completed { border-left: 4px solid #478561; }
+.ap-question { background: var(--pico-card-sectioning-background-color); padding: 1rem; border-radius: .5rem; margin: 1rem 0; }
+.ap-limit, .ap-controls-note { color: var(--pico-muted-color); }
+.ap-facts dt { font-weight: 600; margin-top: .7rem; }
+.ap-facts dd { margin-left: 0; }
+.ap-prepared textarea, .ap-run pre { overflow-wrap: anywhere; white-space: pre-wrap; }
+.ap-prepared[hidden] { display: none; }

@@ -16,6 +16,9 @@ Usage: synthesis-console COMMAND
   start [--demo]                      Run on loopback in the foreground
   demo                                Run with bundled sample data only
   autostart install | uninstall        Explicit login service registration/removal
+  supervision enroll | status | stop | uninstall | reconcile
+                                      Capability status and retained delivery controls
+  supervision submit                 Private owner request; unavailable without proven custody
 
 Bun 1.3.13+ is required. Default core setup needs Python3.12–3.14 and Git.
 Opt-out setup needs Python3.9+. Bundled PyYAML needs no pip or compiler.
@@ -49,6 +52,11 @@ function verifiedCore(): string {
  if(found.length!==Object.keys(inventory).length) fail("Core package is incomplete.");
  return core;
  } catch(error) { fail(`Verified core launcher unavailable: ${error instanceof Error ? error.message : String(error)}`); }
+}
+if(command==="supervision") {
+ if(args.length!==1 || !["enroll","status","stop","uninstall","reconcile","submit"].includes(args[0])) fail("supervision requires one supported action");
+ const entry=existsSync(join(root,"app/autopilot-supervisor.js"))?join(root,"app/autopilot-supervisor.js"):join(root,"src/autopilot-supervisor.ts");
+ try{const {supervisorCLI}=await import(entry);await supervisorCLI(args[0]);process.exit(0);}catch{fail("Supervision operation refused. Inspect enrollment and the current owner run; credentials are never printed.");}
 }
 let target: string[];
 if(command==="setup") {
