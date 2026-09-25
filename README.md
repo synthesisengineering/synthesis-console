@@ -1,5 +1,7 @@
 # Synthesis Console
 
+Version 1.5.1 distinguishes operator-reader and runtime-verification failures, including timeouts, output limits and process termination. Existing execution and authority limits remain in force.
+
 Local-first, open-source tooling for synthesis engineering. Renders your project management YAML and markdown files as browsable, searchable pages in a web browser.
 
 **Website:** [ragenie.ai/synthesis-console](https://ragenie.ai/synthesis-console/)
