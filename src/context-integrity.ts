@@ -1,4 +1,4 @@
-import { execFile } from "node:child_process";
+import { finiteExecFile } from "./finite-command.js";
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -59,9 +59,11 @@ export interface ContextIntegrityStatus {
     findings?: ContextFinding[];
   } | null;
   auditing: boolean;
+  auditError?: string | null;
 }
 
 let auditInflight = false;
+let auditError: string|null=null;
 
 export function getContextIntegrityStatus(): ContextIntegrityStatus {
   let report: ContextIntegrityStatus["report"] = null;
@@ -76,6 +78,7 @@ export function getContextIntegrityStatus(): ContextIntegrityStatus {
     doctorAvailable: doctorScript() !== null,
     report,
     auditing: auditInflight,
+    auditError,
   };
 }
 
@@ -85,16 +88,17 @@ export function runAuditNow(): boolean {
   const script = doctorScript();
   if (!script || auditInflight) return false;
   auditInflight = true;
+  auditError=null;
   try {
-    const child = execFile(
+    finiteExecFile(
       synthesisPythonBin(),
       [script, "--quiet"],
       { env: synthesisPythonEnv(), timeout: 15 * 60 * 1000 },
-      () => {
-        auditInflight = false;
+      (error) => {
+        auditError=error?.message??null;
+        if(error?.cleanupComplete!==false)auditInflight = false;
       }
     );
-    child.unref?.();
     return true;
   } catch {
     auditInflight = false;

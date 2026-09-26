@@ -1,4 +1,4 @@
-import { execFile } from "node:child_process";
+import { finiteExecFile, FiniteCommandError } from "./finite-command.js";
 import {
   existsSync,
   readFileSync,
@@ -205,40 +205,18 @@ let refreshInflight = false;
 let lastRefreshStartedAt = 0;
 
 /** Exported for testing: every failure mode resolves, none rejects. */
-export function runScript(
-  script: string,
-  args: string[],
-  timeoutMs: number
-): Promise<{ code: number; stdout: string; stderr: string }> {
-  return new Promise((resolve) => {
-    let executable: string;
-    try {
-      executable = synthesisPythonBin();
-    } catch (err) {
-      // Unprepared runtime (or a stale SYNTHESIS_PYTHON_BIN override) must
-      // degrade to a failed run, never to a rejection: refreshDetector is
-      // fire-and-forget from getSyncStatus, so a rejection would crash the
-      // process as an unhandled rejection.
-      resolve({
-        code: 1,
-        stdout: "",
-        stderr: err instanceof Error ? err.message : String(err),
-      });
-      return;
-    }
-    execFile(
-      executable,
-      [script, ...args],
-      { env: synthesisPythonEnv(), timeout: timeoutMs, maxBuffer: 8 * 1024 * 1024 },
-      (err: any, stdout: any, stderr: any) => {
-        resolve({
-          code: err ? (typeof err.code === "number" ? err.code : 1) : 0,
-          stdout: String(stdout || ""),
-          stderr: String(stderr || ""),
-        });
-      }
-    );
-  });
+export async function runScript(
+  script: string, args: string[], timeoutMs: number
+): Promise<{code:number;stdout:string;stderr:string;cleanupComplete:boolean;helperFailure:boolean}> {
+  let executable:string;
+  try { executable=await synthesisPythonBin(); }
+  catch(error){return {code:1,stdout:'',stderr:error instanceof Error?error.message:String(error),
+    cleanupComplete:!(error instanceof FiniteCommandError)||error.cleanupComplete,helperFailure:true};}
+  return new Promise(resolve=>finiteExecFile(executable,[script,...args],
+    {env:synthesisPythonEnv(),timeout:timeoutMs,maxBuffer:8*1024*1024},
+    (error,stdout,stderr)=>resolve({code:error?(typeof error.code==='number'?error.code:1):0,
+      stdout,stderr:stderr||error?.message||'',cleanupComplete:error?.cleanupComplete!==false,
+      helperFailure:Boolean(error&&error.result.kind!=='exit')})));
 }
 
 /** Run the read-only detector now (writes fresh report files). */
@@ -247,13 +225,15 @@ export async function refreshDetector(): Promise<boolean> {
   if (!script || refreshInflight) return false;
   refreshInflight = true;
   lastRefreshStartedAt = Date.now();
+  let cleanupComplete=true;
   try {
     // --quiet: exit code + report files only. No audio flags — the console
     // renders state; it never triggers audible alerts.
     const r = await runScript(script, ["--quiet"], 60_000);
-    return r.code === 0 || r.code === 1;
+    cleanupComplete=r.cleanupComplete!==false;
+    return !r.helperFailure && (r.code === 0 || r.code === 1);
   } finally {
-    refreshInflight = false;
+    if(cleanupComplete)refreshInflight = false;
   }
 }
 
@@ -312,7 +292,7 @@ export async function runCheckpointNow(): Promise<{
     /* state file still has the outcome */
   }
   await refreshDetector();
-  return { ok: r.code === 0 || r.code === 1, results };
+  return { ok: !r.helperFailure && (r.code === 0 || r.code === 1), results };
 }
 
 /**
@@ -325,7 +305,7 @@ export function fireProducerCheckpoint(filePath: string): void {
   const script = checkpointScript();
   if (!script) return;
   try {
-    const child = execFile(
+    finiteExecFile(
       synthesisPythonBin(),
       [script, "--repo", filePath, "--now", "--quiet"],
       { env: synthesisPythonEnv(), timeout: 120_000 },
@@ -333,7 +313,6 @@ export function fireProducerCheckpoint(filePath: string): void {
         /* outcome recorded in checkpoint-state.json */
       }
     );
-    child.unref?.();
   } catch {
     /* never let a checkpoint failure break a save */
   }

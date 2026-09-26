@@ -167,9 +167,9 @@ describe("agent conformance evidence", () => {
     expect(args[index + 1]).toBe(evidence.privateCodexReceipt);
   });
 
-  test("runs from source when the pointer worktree is stale", () => {
+  test("runs from source when the pointer worktree is stale", async () => {
     const python = preparedPython();
-    const invocation = conformanceInvocation(
+    const invocation = await conformanceInvocation(
       "/plugin/conformance.py",
       { project: "/project", worktree: "/deleted-worktree" },
       "/tmp/report.json",
@@ -183,12 +183,12 @@ describe("agent conformance evidence", () => {
     expect(invocation.args[repoRoot + 1]).toBe("/deleted-worktree");
   });
 
-  test("conformance uses only the verified owned Python interpreter", () => {
+  test("conformance uses only the verified owned Python interpreter", async () => {
     const python = preparedPython();
-    expect(synthesisPythonBin()).toBe(python);
-    expect(() => synthesisPythonBin(" /opt/example/python3 ")).toThrow("differs from the verified");
+    expect(await synthesisPythonBin()).toBe(python);
+    await expect(synthesisPythonBin(" /opt/example/python3 ")).rejects.toThrow("differs from the verified");
     process.env.SYNTHESIS_PYTHON_BIN = python;
-    const invocation = conformanceInvocation(
+    const invocation = await conformanceInvocation(
       "/plugin/conformance.py", { project: "/project", worktree: "/repo" },
       "/tmp/report.json", conformanceEvidencePaths("/tmp/synthesis-test"), "/verified-source", false
     );

@@ -1,4 +1,4 @@
-import { execFile } from "node:child_process";
+import { finiteCommand } from "./finite-command.js";
 import { lstatSync, realpathSync, readFileSync } from "node:fs";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { createHash } from "node:crypto";
@@ -80,24 +80,19 @@ export function operatorScript(): string {
   }
   return containedReal(join(skill, "scripts/operator_status.py"), skill, false);
 }
-export function boundedCommand(executable: string, args: string[], timeout = READ_TIMEOUT_MS, phase = "Operator reader"): Promise<string> {
-  return new Promise((done, reject) => {
-    execFile(executable, args, {env: {...synthesisPythonEnv(), GIT_OPTIONAL_LOCKS: "0", GIT_TERMINAL_PROMPT: "0", GIT_NO_LAZY_FETCH: "1"}, encoding: "utf8", timeout,
-      maxBuffer: MAX_OUTPUT_BYTES + 4096, killSignal: "SIGKILL", shell: false}, (error, stdout, stderr) => {
-        if (error) {
-          const detail = String(stderr || stdout || "").trim().slice(0, 2048);
-          let reason: string;
-          if (error.code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER") reason = "exceeded its output bound";
-          else if (error.killed && error.signal === "SIGKILL") reason = `exceeded its ${timeout} ms time bound`;
-          else if (error.signal) reason = `terminated by signal ${error.signal}`;
-          else if (typeof error.code === "number") reason = `exited with code ${error.code}`;
-          else reason = `could not start (${error.code || "unknown launch error"})`;
-          return reject(new Error(`${phase} ${reason}${detail ? ": " + detail : "."}`));
-        }
-        if (Buffer.byteLength(stdout) > MAX_OUTPUT_BYTES) return reject(new Error(`${phase} exceeded its output bound.`));
-        done(stdout);
-      });
-  });
+export class HelperCustodyError extends Error { constructor(message:string,readonly cleanupComplete:boolean){super(message);} }
+export async function boundedCommand(executable: string, args: string[], timeout = READ_TIMEOUT_MS, phase = "Operator reader"): Promise<string> {
+  const result=await finiteCommand(executable,args,{env:{...synthesisPythonEnv(),GIT_OPTIONAL_LOCKS:"0",GIT_TERMINAL_PROMPT:"0",GIT_NO_LAZY_FETCH:"1"},timeoutMs:timeout,maxOutputBytes:MAX_OUTPUT_BYTES});
+  if(result.kind==='success')return result.stdout;
+  const detail=(result.stderr||result.stdout).trim().slice(0,2048);
+  let reason:string;
+  if(result.kind==='timeout')reason=`exceeded its ${timeout} ms time bound`;
+  else if(result.kind==='output')reason='exceeded its output bound';
+  else if(result.kind==='signal')reason=`terminated by signal ${result.signal}`;
+  else if(result.kind==='exit')reason=`exited with code ${result.code}`;
+  else if(result.kind==='launch')reason=`could not start (${result.detail})`;
+  else reason=result.detail;
+  throw new HelperCustodyError(`${phase} ${reason}${detail?": "+detail:"."}`,result.cleanupComplete);
 }
 export function validateReport(value: unknown, project: string, script: string, runId?: string, registry?: {path: string; id: string}): OperatorReport {
   const data = value as OperatorReport;
@@ -139,6 +134,7 @@ let inFlight = 0;
 export async function readOperator(source: Source, id: string, runId?: string, page: {limit?: number; cursor?: string} = {}): Promise<OperatorResult> {
   if (inFlight >= 2) return {available: false, report: null, diagnostic: "Two reads are in progress. Refresh after they finish."};
   inFlight++;
+  let cleanupComplete=true;
   try {
     if (runId && !RUN_ID.test(runId)) throw new Error("Invalid run identity.");
     const index = operatorIndex(source, id);
@@ -160,8 +156,9 @@ export async function readOperator(source: Source, id: string, runId?: string, p
       diagnostic: "Project resolution " + report.resolution!.status + ": " + (report.resolution!.issues.join("; ") || "No current readable project was selected.")};
     return {available: true, report, diagnostic: null};
   } catch (error) {
+    if(error instanceof HelperCustodyError)cleanupComplete=error.cleanupComplete;
     return {available: false, report: null, diagnostic: error instanceof Error ? error.message : "Operator read unavailable."};
-  } finally { inFlight--; }
+  } finally { if(cleanupComplete)inFlight--; }
 }
 
 /** Preparation only: execute through the existing authenticated native owner. */
