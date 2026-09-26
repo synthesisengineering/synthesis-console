@@ -1,3 +1,4 @@
+import { finiteCommand } from "./finite-command.js";
 /** Optional delivery inside the existing Console process. The run journal owns authority. */
 import { constants as F, openSync, closeSync, fstatSync, lstatSync, readSync, writeFileSync, mkdirSync, renameSync, unlinkSync, readdirSync, readFileSync, realpathSync, existsSync } from "node:fs";
 import { join, dirname, resolve, isAbsolute } from "node:path";
@@ -69,12 +70,10 @@ function atomic(path:string,value:any) {
   const temporary=path+"."+randomUUID()+".tmp";writeFileSync(temporary,JSON.stringify(value)+"\n",{flag:"wx",mode:0o600});renameSync(temporary,path);
 }
 function cleanEnv(){const env=synthesisPythonEnv();for(const key of ["CODEX_THREAD_ID","CLAUDE_CODE_SESSION_ID","CLAUDE_CODE_HOST_SESSION_ID","CLAUDE_PID","CLAUDECODE","MUSE_SESSION_ID","SYNTHESIS_CLIENT_SESSION_REF","SYNTHESIS_COORDINATION_SESSION"])delete env[key];return env;}
-async function capture(argv:string[],timeout=10000):Promise<string>{
-  return new Promise((done,reject)=>{const child=spawn(argv[0],argv.slice(1),{env:cleanEnv(),stdio:["pipe","pipe","pipe"],shell:false});let result="",size=0,failed=false;
-    const timer=setTimeout(()=>{failed=true;child.kill("SIGKILL");},timeout);child.stdin.end();
-    for(const stream of [child.stdout,child.stderr])stream.on("data",(data:Buffer)=>{size+=data.length;if(size>MAX_OUTPUT){failed=true;child.kill("SIGKILL");}else if(stream===child.stdout)result+=data.toString();});
-    child.on("error",()=>{failed=true;});child.on("close",code=>{clearTimeout(timer);if(failed||code!==0)reject(new Error("Installed release/runtime verification failed or exceeded its bound."));else done(result);});
-  });
+export async function capture(argv:string[],timeout=10000):Promise<string>{
+ const result=await finiteCommand(argv[0],argv.slice(1),{env:cleanEnv(),timeoutMs:timeout,maxOutputBytes:MAX_OUTPUT,combinedOutput:true});
+ if(result.kind!=='success')throw new Error('Installed release/runtime verification failed or exceeded its bound: '+result.detail);
+ return result.stdout;
 }
 async function installedGeneration():Promise<Generation>{
   const python=(await capture(["bash",resolve(import.meta.dir,"../scripts/python-runtime.sh"),"resolve"])).trim();

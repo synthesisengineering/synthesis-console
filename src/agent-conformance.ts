@@ -1,4 +1,4 @@
-import { execFile } from "node:child_process";
+import { finiteExecFile, FiniteCommandError } from "./finite-command.js";
 import {
   existsSync,
   mkdirSync,
@@ -262,22 +262,23 @@ export function conformanceArgs(
   return args;
 }
 
-export function conformanceInvocation(
+export async function conformanceInvocation(
   script: string,
   pointer: ActiveProjectPointer,
   reportPath: string,
   evidence = conformanceEvidencePaths(),
   sourceRoot = conformanceSourceRoot(),
   includePrivateControlPlane =
-    process.env.SYNTHESIS_PRIVATE_CONTROL_PLANE === "1"
-): { executable: string; args: string[]; cwd: string } {
+    process.env.SYNTHESIS_PRIVATE_CONTROL_PLANE === "1",
+  interpreter?:string
+): Promise<{ executable: string; args: string[]; cwd: string }> {
   if (!sourceRoot) {
     throw new Error(
       "A Git-backed synthesis-skills source checkout is required for conformance."
     );
   }
   return {
-    executable: synthesisPythonBin(),
+    executable: interpreter??await synthesisPythonBin(),
     args: conformanceArgs(
       script,
       pointer,
@@ -375,7 +376,8 @@ export function runConformanceNow(): boolean {
   const previousCheckedAt = validateConformanceReport(parseJson(REPORT_PATH))?.checked_at;
   const startedAt = Date.now();
   let auditReportPath: string | null = null;
-  try {
+  void (async()=>{try {
+    const python=await synthesisPythonBin();
     mkdirSync(dirname(REPORT_PATH), { recursive: true });
     auditReportPath = join(
       dirname(REPORT_PATH),
@@ -383,20 +385,22 @@ export function runConformanceNow(): boolean {
     );
     const pendingReportPath = auditReportPath;
     removeReport(pendingReportPath);
-    const invocation = conformanceInvocation(
+    const invocation = await conformanceInvocation(
       script,
       pointer as ActiveProjectPointer,
       pendingReportPath,
       conformanceEvidencePaths(),
       sourceRoot,
-      process.env.SYNTHESIS_PRIVATE_CONTROL_PLANE === "1"
+      process.env.SYNTHESIS_PRIVATE_CONTROL_PLANE === "1",
+      python
     );
-    const child = execFile(
+    finiteExecFile(
       invocation.executable,
       invocation.args,
       { cwd: invocation.cwd, env: synthesisPythonEnv(), timeout: 15 * 60 * 1000 },
       (error, _stdout, stderr) => {
         try {
+          if(error && error.result.kind!=="exit")throw error;
           const report = freshConformanceReport(
             parseJson(pendingReportPath),
             previousCheckedAt,
@@ -424,14 +428,13 @@ export function runConformanceNow(): boolean {
             // The primary error above remains the user-visible evidence.
           }
         } finally {
-          auditInflight = false;
+          if(error?.cleanupComplete!==false)auditInflight = false;
         }
       }
     );
-    child.unref?.();
     return true;
-  } catch {
-    auditInflight = false;
+  } catch (error) {
+    if(!(error instanceof FiniteCommandError)||error.cleanupComplete)auditInflight = false;
     if (auditReportPath) {
       try {
         removeReport(auditReportPath);
@@ -439,7 +442,7 @@ export function runConformanceNow(): boolean {
         // The process-start failure remains the user-visible evidence.
       }
     }
-    lastAuditError = "The conformance process could not be started.";
-    return false;
-  }
+    lastAuditError = error instanceof Error?error.message:"The conformance process could not be started.";
+  }})();
+  return true;
 }

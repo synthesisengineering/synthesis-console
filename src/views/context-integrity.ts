@@ -31,7 +31,9 @@ doctor v${escapeHtml(rep.doctor_version ?? "?")}</p>`
 ${rep.ok ? " — <mark>HEALTHY</mark>" : ""}</p>`
     : "";
 
-  const audit = status.auditing
+  const audit = status.auditError
+    ? `<p role="alert">Audit failed: ${escapeHtml(status.auditError)}</p>`
+    : status.auditing
     ? `<p><em>Audit running — a full corpus pass takes a few minutes; reload to pick up the fresh report.</em></p>`
     : status.doctorAvailable
       ? `<button id="ctx-audit-btn">Audit now (full corpus)</button>`

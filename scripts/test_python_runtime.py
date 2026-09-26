@@ -97,8 +97,8 @@ def test_foreground_runtime_ignores_pythonpath_and_refuses_unowned_override(runt
     foreign=tmp_path/'foreign';foreign.mkdir();(foreign/'yaml.py').write_text('raise RuntimeError("foreign import")')
     script=tmp_path/'probe.ts'
     script.write_text('import {synthesisPythonBin,synthesisPythonEnv} from '+json.dumps(str(ROOT/'src/python-runtime.ts'))+';\n'
-        'import {execFileSync} from "node:child_process"; console.log(synthesisPythonBin()); '
-        'console.log(execFileSync(synthesisPythonBin(),["-B","-c","import yaml;print(yaml.__version__)"],{env:synthesisPythonEnv(),encoding:"utf8"}).trim());\n')
+        'import {execFileSync} from "node:child_process"; const python=await synthesisPythonBin(); console.log(python); '
+        'console.log(execFileSync(python,["-B","-c","import yaml;print(yaml.__version__)"],{env:synthesisPythonEnv(),encoding:"utf8"}).trim());\n')
     env=dict(env,SYNTHESIS_BOOTSTRAP_PYTHON=str(base),PYTHONPATH=str(foreign))
     env.pop('SYNTHESIS_PYTHON_BIN',None)
     good=subprocess.run(['bun',str(script)],env=env,capture_output=True,text=True)

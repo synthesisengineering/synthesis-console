@@ -629,3 +629,13 @@ acceptance must then pass under that mechanism. Native PM recovery, subsequent
 wakes, app exit, logout, reboot, offline and multi-machine survival each require
 their own evidence. Read-only status and the separately qualified native-owner
 one-shot consumer remain usable within their verified capabilities.
+
+## Finite helper custody
+
+Release 1.5.2 keeps finite diagnostic and project-reader helpers in owned POSIX
+process groups. Timeout, output overflow, cancellation and surviving inherited
+descendants trigger bounded cleanup before returning. Unresolved cleanup
+refuses further helper admission and remains visible as a failure. Each work
+deadline retains a separate 1.5-second cleanup allowance. Runtime resolution
+is asynchronous and bounded. This does not establish hostile-process
+confinement or native-agent recovery.
