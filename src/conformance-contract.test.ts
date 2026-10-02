@@ -9,7 +9,7 @@ import {
   planeStatus,
 } from "./conformance-contract.js";
 import fixture from "./contracts/report-fixture.json";
-import { mkdtempSync, writeFileSync, symlinkSync, linkSync } from "node:fs";
+import { realpathSync, mkdtempSync, writeFileSync, symlinkSync, linkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 const now = Date.parse(fixture.checked_at);
@@ -74,7 +74,7 @@ describe("strict shared report contract", () => {
     expect(parseUniqueJSON(JSON.stringify(fixture))).toEqual(fixture);
   });
   test("descriptor reader refuses links and size growth", () => {
-    const dir = mkdtempSync(join(tmpdir(), "report-"));
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), "report-")));
     const file = join(dir, "file");
     writeFileSync(file, "synthetic");
     expect(readBoundedFile(file).toString()).toBe("synthetic");

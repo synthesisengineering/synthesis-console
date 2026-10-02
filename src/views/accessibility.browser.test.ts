@@ -112,9 +112,9 @@ test("keyboard focus, named controls, status meanings and AX tree are real brows
     if (stderr.length > 1024 * 1024) fail(Error("Browser diagnostic ceiling"));
   });
   child.once("error", fail);
-  child.once("exit", () => {
+  child.once("exit", (code, signal) => {
     closed = true;
-    fail(Error("Browser exited"));
+    fail(Error(`Browser exited (code=${code}, signal=${signal}): ${stderr}`));
   });
   (child.stdio[4] as any).on("data", (b: Buffer) => {
     try {
@@ -155,7 +155,7 @@ test("keyboard focus, named controls, status meanings and AX tree are real brows
       );
     });
   const deadline = setTimeout(() => {
-    fail(Error("Browser deadline"));
+    fail(Error(`Browser deadline: ${stderr}`));
     if (child.pid) {
       try {
         process.kill(-child.pid, "SIGKILL");

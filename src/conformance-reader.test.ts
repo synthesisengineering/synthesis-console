@@ -1,6 +1,6 @@
 /** Actual cached-report reader, isolated homes and synthetic observations only. */
 import { test, expect } from "bun:test";
-import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync } from "node:fs";
+import { realpathSync, mkdtempSync, mkdirSync, writeFileSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { finiteCommand } from "./finite-command.js";
@@ -27,7 +27,7 @@ for (const change of cases)
     async () => {
       const source = process.env.SYNTHESIS_CORE_SOURCE;
       expect(source).toBeTruthy();
-      const home = mkdtempSync(join(tmpdir(), "conformance-consumer-"));
+      const home = realpathSync(mkdtempSync(join(tmpdir(), "conformance-consumer-")));
       const state = join(home, ".synthesis");
       const reports = join(state, "agent-conformance");
       mkdirSync(reports, { recursive: true });
