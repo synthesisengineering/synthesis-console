@@ -49,21 +49,22 @@ export function layout(opts: {
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
+  <a class="skip-link" href="#main-content">Skip to main content</a>
   <header class="container">
-    <nav>
+    <nav aria-label="Main navigation">
       <ul>
         <li><a href="/projects" class="logo"><strong>Synthesis Console</strong></a> ${demoBadge}</li>
       </ul>
       <ul>
         ${nav}
-        ${opts.demoMode ? "" : `<li><a href="/sync" id="sync-chip" class="sync-chip" title="Repo sync status">●<span class="sync-chip-count"></span></a></li>
-        <li><a href="/context" id="context-chip" class="sync-chip" title="Context integrity">◆<span class="sync-chip-count"></span></a></li>
-        <li><a href="/conformance" id="conformance-chip" class="sync-chip" title="Agent conformance">▲<span class="sync-chip-count"></span></a></li>`}
+        ${opts.demoMode ? "" : `<li><a href="/sync" id="sync-chip" class="sync-chip" title="Repo sync status" aria-label="Repository sync status">●<span class="sync-chip-count"></span></a></li>
+        <li><a href="/context" id="context-chip" class="sync-chip" title="Context integrity" aria-label="Context integrity status">◆<span class="sync-chip-count"></span></a></li>
+        <li><a href="/conformance" id="conformance-chip" class="sync-chip" title="Agent conformance" aria-label="Agent conformance status">▲<span class="sync-chip-count"></span></a></li>`}
         ${picker}
       </ul>
     </nav>
   </header>
-  <main class="container${opts.wide ? " container-wide" : ""}">
+  <main id="main-content" tabindex="-1" class="container${opts.wide ? " container-wide" : ""}">
     ${opts.content}
   </main>
   <footer class="container">
@@ -90,7 +91,7 @@ function buildNav(currentPath: string, demoMode: boolean): string {
   return links
     .filter(link => !demoMode || !["/context", "/conformance"].includes(link.href))
     .map((link) => {
-      const active = currentPath.startsWith(link.match) ? ' class="active"' : "";
+      const active = currentPath.startsWith(link.match) ? ' class="active" aria-current="page"' : "";
       return `<li><a href="${link.href}"${active}>${link.label}</a></li>`;
     })
     .join("\n");
@@ -138,11 +139,14 @@ function buildSourcePicker(
     .join("\n");
 
   return `<li>
-    <details class="source-picker" role="list">
-      <summary aria-haspopup="listbox">${escapeHtml(summary)}</summary>
-      <ul role="listbox" aria-label="Active sources">
+    <details class="source-picker">
+      <summary>${escapeHtml(summary)}</summary>
+      <fieldset><legend>Active sources</legend><ul>
         ${items}
       </ul>
+      </fieldset>
+      <p id="source-help"><small>Choose sources, then apply. Escape closes this menu.</small></p>
+      <button type="button" class="source-apply" aria-describedby="source-help"${disabled}>Apply sources</button>
       ${hint}
     </details>
   </li>`;
@@ -166,18 +170,23 @@ function layoutScript(): string {
 
       const picker = document.querySelector('.source-picker');
       if (picker) {
-        picker.addEventListener('change', function(e) {
-          if (e.target && e.target.name === 'source') {
+        picker.addEventListener('click', function(e) {
+          if (e.target && e.target.classList.contains('source-apply')) {
             const names = currentSelection();
             setCookie(names.join(','));
             try { localStorage.setItem(COOKIE, names.join(',')); } catch (_) {}
             // Reload to re-fetch content for the new selection.
             const url = new URL(window.location.href);
+            url.hash = 'main-content';
             url.searchParams.delete('sources');
             window.location.href = url.toString();
           }
         });
       }
+
+      if (picker) picker.addEventListener('keydown', function(e) {
+        if(e.key === 'Escape' && picker.open) {picker.open=false; picker.querySelector('summary').focus(); e.preventDefault();}
+      });
 
       // On first visit with nothing checked but localStorage populated, sync cookie and reload.
       try {
@@ -1337,6 +1346,7 @@ function layoutScript(): string {
         if (!data || data.installed === false) {
           chip.classList.add('sync-na');
           chip.title = 'Repo sync: status unavailable';
+        chip.setAttribute('aria-label',chip.title);
           if (count) count.textContent = '';
           return;
         }
@@ -1352,6 +1362,7 @@ function layoutScript(): string {
         chip.classList.add(cls);
         var muted = data.quietAudio ? ' · audio muted' : '';
         chip.title = 'Repo sync: ' + label + (data.generatedAt ? ' (as of ' + data.generatedAt + ')' : '') + muted;
+        chip.setAttribute('aria-label',chip.title);
         if (count) {
           var n = data.alertCount > 0 ? data.alertCount : data.dirtyCount;
           count.textContent = (n > 0 ? String(n) : '') + (data.quietAudio ? '🔇' : '');
@@ -1385,6 +1396,7 @@ function layoutScript(): string {
         if (!data || (data.defects === null && !data.doctorAvailable)) {
           chip.classList.add('sync-na');
           chip.title = 'Context integrity: status unavailable';
+        chip.setAttribute('aria-label',chip.title);
           if (count) count.textContent = '';
           return;
         }
@@ -1393,6 +1405,7 @@ function layoutScript(): string {
         chip.title = 'Context integrity: ' + (defects > 0 ? defects + ' defect(s) in the durable layer' : 'corpus clean')
           + (data.generatedAt ? ' (as of ' + data.generatedAt + ')' : '')
           + (data.auditing ? ' · audit running' : '');
+        chip.setAttribute('aria-label',chip.title);
         if (count) count.textContent = defects > 0 ? String(defects) : '';
       }
 
@@ -1423,12 +1436,14 @@ function layoutScript(): string {
         if (data && data.auditError) {
           chip.classList.add('sync-dirty');
           chip.title = 'Agent conformance: audit error · ' + data.auditError;
+        chip.setAttribute('aria-label',chip.title);
           if (count) count.textContent = '!';
           return;
         }
         if (!data || (!data.conformanceAvailable && !data.status)) {
           chip.classList.add('sync-na');
           chip.title = 'Agent conformance: status unavailable';
+        chip.setAttribute('aria-label',chip.title);
           if (count) count.textContent = '';
           return;
         }
@@ -1441,6 +1456,7 @@ function layoutScript(): string {
         chip.title = 'Agent conformance: ' + label
           + (data.checkedAt ? ' (as of ' + data.checkedAt + ')' : '')
           + (data.auditing ? ' · audit running' : '');
+        chip.setAttribute('aria-label',chip.title);
         if (count) count.textContent = failures > 0 ? String(failures) : (data.stale ? '!' : '');
       }
 

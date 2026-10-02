@@ -25,21 +25,9 @@ const CONTEXT_REPORT_PATH = join(
 const STALE_AFTER_SECONDS = 4 * 60 * 60;
 const PRIVATE_CODEX_CHECK = "hook-live.codex-private-sessionstart";
 
-export interface ConformanceCheck {
-  name: string;
-  ok: boolean | null;
-  detail: string;
-  required: boolean;
-  plane: string;
-  status: string;
-}
-
-export interface ConformanceReport {
-  ok: boolean;
-  status: string;
-  checked_at: string;
-  checks: ConformanceCheck[];
-}
+import { validateReport, readBoundedFile, parseUniqueJSON, reportIdentity } from './conformance-contract.js';
+import type { ConformanceReport, ReportIdentity } from './conformance-contract.js';
+export type { ConformanceReport, ConformanceCheck } from './conformance-contract.js';
 
 export interface AgentConformanceStatus {
   conformanceAvailable: boolean;
@@ -132,29 +120,14 @@ export function ageSecondsAt(
   return Math.max(0, Math.floor((now - timestamp) / 1000));
 }
 
-export function validateConformanceReport(value: unknown): ConformanceReport | null {
-  if (!value || typeof value !== "object") return null;
-  const candidate = value as Partial<ConformanceReport>;
-  if (
-    typeof candidate.ok !== "boolean" ||
-    !["PASS", "FAIL"].includes(candidate.status ?? "") ||
-    typeof candidate.checked_at !== "string" ||
-    !Array.isArray(candidate.checks) ||
-    !candidate.checks.every((check) => {
-      if (!check || typeof check !== "object") return false;
-      const item = check as Partial<ConformanceCheck>;
-      return (
-        typeof item.name === "string" &&
-        (typeof item.ok === "boolean" || item.ok === null) &&
-        typeof item.detail === "string" &&
-        typeof item.required === "boolean" &&
-        typeof item.plane === "string" && item.plane.length > 0 &&
-        ["PASS", "FAIL", "WARN", "UNKNOWN", "UNSUPPORTED"].includes(item.status ?? "")
-      );
-    })
-  ) return null;
-  if (candidate.ok !== (candidate.status === "PASS")) return null;
-  return candidate as ConformanceReport;
+export function validateConformanceReport(value:unknown):ConformanceReport|null {return validateReport(value);}
+function expectedIdentity(script:string,source:string):ReportIdentity {
+ const pointer=readReport(POINTER_PATH) as {project?:string;worktree?:string}|null;
+ if(!pointer?.project||!pointer.worktree)throw Error('Project selection is unavailable');
+ return reportIdentity(source,script,resolve(pointer.project),resolve(pointer.worktree),process.env.SYNTHESIS_PRIVATE_CONTROL_PLANE==='1'?'private':'public');
+}
+function readReport(path:string):unknown {
+ try{return parseUniqueJSON(readBoundedFile(path));}catch{return null;}
 }
 
 export function conformanceReportMatchesProfile(
@@ -299,9 +272,10 @@ export function freshConformanceReport(
   previousCheckedAt: string | undefined,
   startedAt: number,
   includePrivateControlPlane =
-    process.env.SYNTHESIS_PRIVATE_CONTROL_PLANE === "1"
+    process.env.SYNTHESIS_PRIVATE_CONTROL_PLANE === "1",
+  expected?:ReportIdentity, completedAt=Date.now()
 ): ConformanceReport | null {
-  const report = validateConformanceReport(value);
+  const report = validateReport(value,{expected,fresh:true,now:completedAt});
   if (
     !report ||
     !conformanceReportMatchesProfile(report, includePrivateControlPlane) ||
@@ -325,7 +299,13 @@ export function getAgentConformanceStatus(): AgentConformanceStatus {
   const sourceRoot = conformanceSourceRoot();
   const includePrivateControlPlane =
     process.env.SYNTHESIS_PRIVATE_CONTROL_PLANE === "1";
-  const cachedReport = validateConformanceReport(parseJson(REPORT_PATH));
+  const rawReport = readReport(REPORT_PATH);
+  let cachedReport:ConformanceReport|null=null;
+  let invalidReport:string|null=null;
+  try {
+    if(script && sourceRoot)cachedReport=validateReport(rawReport,{expected:expectedIdentity(script,sourceRoot),fresh:true});
+    if(rawReport&&!cachedReport)invalidReport='Cached conformance evidence is malformed, expired, or belongs to a different machine, source, project or profile. Run a new audit.';
+  }catch {invalidReport='Current report identity could not be verified; cached evidence is not accepted.';}
   const profileMismatch = Boolean(
     cachedReport &&
     !conformanceReportMatchesProfile(cachedReport, includePrivateControlPlane)
@@ -343,7 +323,7 @@ export function getAgentConformanceStatus(): AgentConformanceStatus {
     stale: age === null || age > STALE_AFTER_SECONDS,
     auditing: auditInflight,
     auditError:
-      lastAuditError ||
+      lastAuditError || invalidReport ||
       (profileMismatch
         ? "Cached conformance evidence does not include the configured private control plane."
         : script && !sourceRoot
@@ -364,7 +344,7 @@ export function runConformanceNow(): boolean {
       "A Git-backed synthesis-skills source checkout is required to run conformance.";
     return false;
   }
-  const pointer = parseJson(POINTER_PATH) as
+  const pointer = readReport(POINTER_PATH) as
     | { project?: string; worktree?: string }
     | null;
   if (!pointer?.project || !pointer.worktree) {
@@ -373,7 +353,7 @@ export function runConformanceNow(): boolean {
   }
   auditInflight = true;
   lastAuditError = null;
-  const previousCheckedAt = validateConformanceReport(parseJson(REPORT_PATH))?.checked_at;
+  const previousCheckedAt = validateConformanceReport(readReport(REPORT_PATH))?.checked_at;
   const startedAt = Date.now();
   let auditReportPath: string | null = null;
   void (async()=>{try {
@@ -402,10 +382,11 @@ export function runConformanceNow(): boolean {
         try {
           if(error && error.result.kind!=="exit")throw error;
           const report = freshConformanceReport(
-            parseJson(pendingReportPath),
+            readReport(pendingReportPath),
             previousCheckedAt,
             startedAt,
-            process.env.SYNTHESIS_PRIVATE_CONTROL_PLANE === "1"
+            process.env.SYNTHESIS_PRIVATE_CONTROL_PLANE === "1",
+            expectedIdentity(script,sourceRoot)
           );
           if (!report) {
             lastAuditError =

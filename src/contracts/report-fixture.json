@@ -1,0 +1,46 @@
+{
+  "schema_id": "https://synthesisengineering.org/schemas/conformance-report/v1",
+  "schema_version": 1,
+  "schema_sha256": "b234da31c28e2e1387ca656bd1c82016decf70678e7a5d65afb98f3734dfa1d9",
+  "checked_at": "2026-08-13T12:00:00+00:00",
+  "expires_at": "2026-08-13T16:00:00+00:00",
+  "command": "partial",
+  "identity": {
+    "machine_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+    "source_root": "/synthetic/source",
+    "source_binding_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+    "producer_sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+    "project": "/synthetic/project",
+    "repo_root": "/synthetic/repo",
+    "profile": "public"
+  },
+  "ok": true,
+  "status": "PASS",
+  "planes": {
+    "source": "PASS",
+    "installed": "UNKNOWN",
+    "native": "UNKNOWN",
+    "continuity": "UNKNOWN",
+    "capability": "UNSUPPORTED"
+  },
+  "checks": [
+    {
+      "name": "source.schema",
+      "plane": "source",
+      "ok": true,
+      "required": true,
+      "status": "PASS",
+      "outcome": null,
+      "detail": "Synthetic fixture only"
+    },
+    {
+      "name": "surface.codex-ide",
+      "plane": "capability",
+      "ok": null,
+      "required": false,
+      "status": "UNSUPPORTED",
+      "outcome": null,
+      "detail": "Synthetic fixture only"
+    }
+  ]
+}

@@ -15,7 +15,7 @@ Usage: synthesis-console COMMAND
   synthesis <activate|deactivate|status|doctor|repair|update> [args]\n                                      Explicit packaged-core lifecycle access
   start [--demo]                      Run on loopback in the foreground
   demo                                Run with bundled sample data only
-  autostart install | uninstall        Explicit login service registration/removal
+  autostart status | install | uninstall        Explicit login service registration/removal
   supervision enroll | status | stop | uninstall | reconcile
                                       Capability status and retained delivery controls
   supervision submit                 Private owner request; unavailable without proven custody
@@ -52,6 +52,11 @@ function verifiedCore(): string {
  if(found.length!==Object.keys(inventory).length) fail("Core package is incomplete.");
  return core;
  } catch(error) { fail(`Verified core launcher unavailable: ${error instanceof Error ? error.message : String(error)}`); }
+}
+if(command==="autostart" && args.length===1 && args[0]==="status") {
+ const entry=existsSync(join(root,"app/platform-ownership.js"))?join(root,"app/platform-ownership.js"):join(root,"src/platform-ownership.ts");
+ const {platformOwnership}=await import(entry);
+ console.log(JSON.stringify(platformOwnership(),null,2));process.exit(0);
 }
 if(command==="supervision") {
  if(args.length!==1 || !["enroll","status","stop","uninstall","reconcile","submit"].includes(args[0])) fail("supervision requires one supported action");

@@ -28,12 +28,19 @@ jobs:
         with:
           repository: synthesisengineering/synthesis-skills
           # Source fixtures are pinned; release artifacts bind the final published core separately.
-          ref: ced1472951d0685db0cb9c42e439faa74481f743
+          ref: e057a694b7b13be967f17b56ecfaf230d0b323d1
           path: .test-core-source
       - run: bun install --frozen-lockfile --ignore-scripts
       - run: python -m pip install pytest
+      - uses: browser-actions/setup-chrome@v2
+        id: browser
+        with:
+          chrome-version: stable
       - run: bun test
+        env:
+          SYNTHESIS_TEST_CHROMIUM: ${{ steps.browser.outputs.chrome-path }}
+          SYNTHESIS_CORE_SOURCE: ${{ github.workspace }}/.test-core-source
       - run: bun run typecheck
-      - run: python -B -m pytest scripts/test_distribution.py scripts/test_packaging_provenance.py scripts/test_autostart_uninstall.py scripts/test_lifecycle_bridge.py scripts/test_python_runtime.py -q
+      - run: python -B -m pytest scripts/test_distribution.py scripts/test_packaging_provenance.py scripts/test_autostart_uninstall.py scripts/test_service_finite.py scripts/test_lifecycle_bridge.py scripts/test_python_runtime.py -q
         env:
           SYNTHESIS_CORE_SOURCE: ${{ github.workspace }}/.test-core-source
