@@ -639,3 +639,23 @@ refuses further helper admission and remains visible as a failure. Each work
 deadline retains a separate 1.5-second cleanup allowance. Runtime resolution
 is asynchronous and bounded. This does not establish hostile-process
 confinement or native-agent recovery.
+
+## Evidence, platform mapping and keyboard access
+
+The conformance panel validates the shared version-1 five-plane report schema,
+source/machine/project identity and four-hour freshness. Missing evidence remains
+UNKNOWN. Installed files and an audit report never grant hook trust or service
+permission. The skip link, named navigation, explicit source Apply control and
+live audit feedback support keyboard and assistive navigation without relying
+on color. Browser acceptance uses synthetic local data, not participant studies.
+
+`synthesis-console autostart status` reports the existing owner's exact platform
+paths without querying or changing a service. macOS uses user launchd; Linux and
+WSL require an actual systemd user manager. Native Windows remains explicitly
+unsupported by these owners. WSL does not borrow Windows-home authority. Receipt
+or filesystem disagreement preserves the existing files. Retirement executes
+bounded manager commands with descendant cleanup under the existing owner.
+
+Source tests require a sandbox-capable Chromium path in `SYNTHESIS_TEST_CHROMIUM`
+and the paired public source in `SYNTHESIS_CORE_SOURCE`; CI supplies both. Browser
+or prerequisite failures are failures, never silently skipped.

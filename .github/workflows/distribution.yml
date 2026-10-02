@@ -13,6 +13,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
@@ -28,12 +29,36 @@ jobs:
         with:
           repository: synthesisengineering/synthesis-skills
           # Source fixtures are pinned; release artifacts bind the final published core separately.
-          ref: ced1472951d0685db0cb9c42e439faa74481f743
+          ref: e057a694b7b13be967f17b56ecfaf230d0b323d1
           path: .test-core-source
       - run: bun install --frozen-lockfile --ignore-scripts
       - run: python -m pip install pytest
+      - name: Select sandboxed browser
+        shell: bash
+        run: |
+          if [[ "$RUNNER_OS" == "Linux" ]]; then
+            # Use the runner's installed browser and its OS sandbox policy.
+            browser="$(command -v google-chrome)"
+          else
+            # Headless shell supports CDP pipes without the macOS app lifecycle.
+            case "$(uname -m)" in
+              arm64) platform=mac-arm64 ;;
+              x86_64) platform=mac-x64 ;;
+              *) exit 1 ;;
+            esac
+            version=154.0.8037.92
+            archive="$RUNNER_TEMP/console-browser.zip"
+            curl --fail --location --max-time 150 --output "$archive" \
+              "https://storage.googleapis.com/chrome-for-testing-public/$version/$platform/chrome-headless-shell-$platform.zip"
+            unzip -q "$archive" -d "$RUNNER_TEMP/console-browser"
+            browser="$RUNNER_TEMP/console-browser/chrome-headless-shell-$platform/chrome-headless-shell"
+          fi
+          "$browser" --version
+          echo "SYNTHESIS_TEST_CHROMIUM=$browser" >> "$GITHUB_ENV"
       - run: bun test
+        env:
+          SYNTHESIS_CORE_SOURCE: ${{ github.workspace }}/.test-core-source
       - run: bun run typecheck
-      - run: python -B -m pytest scripts/test_distribution.py scripts/test_packaging_provenance.py scripts/test_autostart_uninstall.py scripts/test_lifecycle_bridge.py scripts/test_python_runtime.py -q
+      - run: python -B -m pytest scripts/test_distribution.py scripts/test_packaging_provenance.py scripts/test_autostart_uninstall.py scripts/test_service_finite.py scripts/test_lifecycle_bridge.py scripts/test_python_runtime.py -q
         env:
           SYNTHESIS_CORE_SOURCE: ${{ github.workspace }}/.test-core-source

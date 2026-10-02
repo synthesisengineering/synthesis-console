@@ -3721,3 +3721,12 @@ body[data-cockpit-focus="true"] .cockpit-shell .cockpit-header {
 .ap-facts dd { margin-left: 0; }
 .ap-prepared textarea, .ap-run pre { overflow-wrap: anywhere; white-space: pre-wrap; }
 .ap-prepared[hidden] { display: none; }
+
+/* Keyboard access is visible independently of status color. */
+.skip-link { position: fixed; top: 0; left: 1rem; padding: .6rem 1rem; background: white; color: #111; z-index: 1000; transform: translateY(-150%); }
+.skip-link:focus { transform: translateY(0); }
+:where(a, button, input, summary, [tabindex]):focus-visible { outline: 3px solid #174a96; outline-offset: 3px; }
+[aria-disabled="true"] { opacity: .7; cursor: wait; }
+.source-picker fieldset { padding: .5rem; }
+.source-picker legend { font-weight: bold; }
+@media (forced-colors: active) { :focus-visible { outline: 3px solid Highlight; } .skip-link { background: Canvas; color: CanvasText; } }

@@ -1,6 +1,6 @@
 {
   "name": "@synthesiswork/console",
-  "version": "1.5.2",
+  "version": "1.6.0",
   "description": "Local console for synthesis engineering \u2014 browsable project state, continuity, and conformance",
   "type": "module",
   "scripts": {

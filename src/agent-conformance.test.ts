@@ -25,6 +25,9 @@ import {
 import { synthesisPythonBin } from "./python-runtime.js";
 import { agentConformanceView } from "./views/agent-conformance.js";
 
+import reportFixture from "./contracts/report-fixture.json";
+import type { ConformanceReport } from "./agent-conformance.js";
+
 const checkedAt = "2026-08-13T12:00:00.000Z";
 const temporaryRoots: string[] = [];
 const originalDataHome = process.env.XDG_DATA_HOME;
@@ -53,29 +56,7 @@ afterEach(() => {
 function status(): AgentConformanceStatus {
   return {
     conformanceAvailable: true,
-    report: {
-      ok: true,
-      status: "PASS",
-      checked_at: checkedAt,
-      checks: [
-        {
-          name: "source.schema",
-          ok: true,
-          detail: "source tree valid",
-          required: true,
-          plane: "source",
-          status: "PASS",
-        },
-        {
-          name: "surface.codex-ide",
-          ok: null,
-          detail: "not a supported plugin surface",
-          required: false,
-          plane: "capability",
-          status: "UNSUPPORTED",
-        },
-      ],
-    },
+    report: structuredClone(reportFixture) as ConformanceReport,
     ageSeconds: 60,
     stale: false,
     auditing: false,
@@ -260,8 +241,9 @@ describe("agent conformance evidence", () => {
     const fresh = {
       ...status().report!,
       checked_at: "2026-08-13T12:05:01.000Z",
+      expires_at: "2026-08-13T16:05:01.000Z",
     };
-    expect(freshConformanceReport(fresh, checkedAt, startedAt)).toEqual(fresh);
+    expect(freshConformanceReport(fresh, checkedAt, startedAt, false, undefined, startedAt+1000)).toEqual(fresh);
   });
 
   test("re-resolves the checker after a plugin path changes", () => {
@@ -284,7 +266,7 @@ describe("agent conformance evidence", () => {
     expect(html).toContain("source (1)");
     expect(html).toContain("capability (1)");
     expect(html).toContain("UNSUPPORTED");
-    expect(html).toContain("Source, installed, live, continuity, and capability planes");
+    expect(html).toContain("Source, installed, native, continuity, and capability planes");
   });
 
   test("escapes checker evidence", () => {

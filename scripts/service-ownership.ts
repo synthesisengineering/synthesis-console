@@ -1,9 +1,14 @@
 /** Exact byte/mode ownership and recoverable login-service retirement. */
-import { lstatSync, readFileSync, mkdirSync, writeFileSync, renameSync, unlinkSync, rmdirSync } from "node:fs";
+import { lstatSync, mkdirSync, writeFileSync, renameSync, unlinkSync, rmdirSync } from "node:fs";
 import { resolve, join, dirname } from "node:path";
 import { homedir } from "node:os";
 import { createHash, randomUUID } from "node:crypto";
-import { spawnSync } from "node:child_process";
+import { finiteCommand, FiniteCommandError } from "../src/finite-command.js";
+import { readBoundedFile, readBoundedSnapshot } from "../src/bounded-file.js";
+const commandDeadline = performance.now() + 120_000;
+const controller = new AbortController();
+let custodyUnresolved = false;
+for(const signal of ["SIGTERM","SIGINT"] as const)process.on(signal,()=>controller.abort());
 
 type Fingerprint = { sha256: string; mode: number };
 type Ownership = Fingerprint & { schema_version: 2; target: string };
@@ -37,7 +42,8 @@ function guard(path: string, directory = false) {
 }
 function fingerprint(path: string): Fingerprint {
   guard(path);
-  return { sha256: createHash("sha256").update(readFileSync(path)).digest("hex"), mode: lstatSync(path).mode & 0o7777 };
+  const snapshot=readBoundedSnapshot(path,1024*1024);
+  return { sha256: createHash("sha256").update(snapshot.data).digest("hex"), mode: snapshot.stat.mode & 0o7777 };
 }
 function validFingerprint(value: any): value is Fingerprint {
   return value && /^[a-f0-9]{64}$/.test(value.sha256) && Number.isInteger(value.mode) && value.mode >= 0 && value.mode <= 0o7777;
@@ -48,7 +54,7 @@ function assertExact(path: string, expected: Fingerprint) {
 }
 function readOwnership(): Ownership {
   guard(receipt);
-  const prior = JSON.parse(readFileSync(receipt, "utf8"));
+  const prior = JSON.parse(readBoundedFile(receipt,65536).toString("utf8"));
   if (prior.schema_version !== 2 || prior.target !== target || !validFingerprint(prior) || (lstatSync(receipt).mode & 0o7777) !== 0o600) {
     throw new Error("Service ownership evidence is unknown or edited; preserved.");
   }
@@ -63,17 +69,20 @@ function checkOwned(): Ownership | undefined {
   if (!present(receipt)) throw new Error("Existing service is unknown; preserved without service changes.");
   const prior = readOwnership(); assertExact(target, prior); return prior;
 }
-function command(binary: string, args: string[]): string {
-  const result = spawnSync(binary, args, { encoding: "utf8", timeout: 30_000, maxBuffer: 1024 * 1024 });
-  if (result.error || result.status !== 0) throw new Error(`${binary} ${args.join(" ")} failed; service retirement stopped. ${result.error?.message || result.stderr.trim()}`);
+async function command(binary: string, args: string[]): Promise<string> {
+  const remaining = Math.floor(commandDeadline - performance.now());
+  if(remaining<=0)throw new Error("Service operation exceeded its total deadline; evidence preserved.");
+  const result=await finiteCommand(binary,args,{timeoutMs:Math.min(30000,remaining),maxOutputBytes:1024*1024,combinedOutput:true,signal:controller.signal});
+  if(!result.cleanupComplete)custodyUnresolved=true;
+  if(result.kind!=="success")throw new FiniteCommandError(result);
   return result.stdout.trim();
 }
-function macLoaded(): boolean {
+async function macLoaded(): Promise<boolean> {
   // These legacy interfaces have a documented format; `print` explicitly does not.
-  if (command("launchctl", ["manageruid"]) !== String(process.getuid!()) || command("launchctl", ["managername"]) !== "Aqua") {
+  if (await command("launchctl", ["manageruid"]) !== String(process.getuid!()) || await command("launchctl", ["managername"]) !== "Aqua") {
     throw new Error("Cannot verify the macOS login service outside its Aqua user context; files preserved.");
   }
-  const lines = command("launchctl", ["list"]).split(/\r?\n/);
+  const lines = (await command("launchctl", ["list"])).split(/\r?\n/);
   if (!/^PID\s+Status\s+Label$/.test(lines.shift() || "")) throw new Error("Unrecognized launchctl list response; files preserved.");
   const seen = new Set<string>();
   for (const line of lines) {
@@ -83,8 +92,8 @@ function macLoaded(): boolean {
   }
   return seen.has(label);
 }
-function linuxStopped(): boolean {
-  const output = command("systemctl", ["--user", "show", unitName, "--property=LoadState", "--property=ActiveState", "--property=UnitFileState", "--property=MainPID", "--property=ControlPID", "--no-pager"]);
+async function linuxStopped(): Promise<boolean> {
+  const output = await command("systemctl", ["--user", "show", unitName, "--property=LoadState", "--property=ActiveState", "--property=UnitFileState", "--property=MainPID", "--property=ControlPID", "--no-pager"]);
   const values: Record<string, string> = {};
   const keys = ["LoadState", "ActiveState", "UnitFileState", "MainPID", "ControlPID"];
   for (const line of output.split(/\r?\n/)) {
@@ -97,14 +106,14 @@ function linuxStopped(): boolean {
   }
   return values.ActiveState === "inactive" && values.UnitFileState === "disabled" && values.MainPID === "0" && values.ControlPID === "0";
 }
-function verifyStop() {
-  const stopped = platform === "macos" ? () => !macLoaded() : linuxStopped;
-  if (stopped()) return;
-  if (platform === "macos") command("launchctl", ["bootout", `gui/${process.getuid!()}/${label}`]);
-  else command("systemctl", ["--user", "disable", "--now", unitName]);
+async function verifyStop() {
+  const stopped = platform === "macos" ? async () => !await macLoaded() : linuxStopped;
+  if (await stopped()) return;
+  if (platform === "macos") await command("launchctl", ["bootout", `gui/${process.getuid!()}/${label}`]);
+  else await command("systemctl", ["--user", "disable", "--now", unitName]);
   for (let attempt = 0; attempt < 25; attempt++) {
-    if (stopped()) return;
-    Bun.sleepSync(100);
+    if (await stopped()) return;
+    await Bun.sleep(100);
   }
   throw new Error("Service manager has not verified an inactive service; unit and ownership evidence preserved.");
 }
@@ -131,7 +140,7 @@ function moveExact(from: string, to: string, expected: Fingerprint) {
 }
 function removePending(tx: Retirement) {
   guard(pending);
-  const current = JSON.parse(readFileSync(pending, "utf8"));
+  const current = JSON.parse(readBoundedFile(pending,65536).toString("utf8"));
   if (JSON.stringify(current) !== JSON.stringify(tx)) throw new Error("Retirement evidence changed; preserved.");
   unlinkSync(pending);
 }
@@ -140,7 +149,7 @@ function cleanupEmptyArchives(tx: Retirement) {
     try { rmdirSync(path); } catch (error: any) { if (!["ENOTEMPTY", "ENOENT"].includes(error.code)) throw error; }
   }
 }
-function rollback(tx: Retirement) {
+async function rollback(tx: Retirement) {
   // Never replace a file created or edited while the manager was running.
   if (present(tx.unit_archive)) moveExact(tx.unit_archive, target, tx.unit);
   else assertExact(target, tx.unit);
@@ -150,13 +159,13 @@ function rollback(tx: Retirement) {
     else assertExact(receipt, tx.receipt);
   } else assertExact(receipt, tx.receipt);
   assertExact(target, tx.unit); assertExact(receipt, tx.receipt);
-  if (platform === "linux") command("systemctl", ["--user", "daemon-reload"]);
+  if (platform === "linux") await command("systemctl", ["--user", "daemon-reload"]);
   removePending(tx); cleanupEmptyArchives(tx);
 }
-function recoverPending() {
+async function recoverPending() {
   guard(pending);
   if (!present(pending)) return;
-  const tx = validateTransaction(JSON.parse(readFileSync(pending, "utf8")));
+  const tx = validateTransaction(JSON.parse(readBoundedFile(pending,65536).toString("utf8")));
   try {
     process.kill(tx.pid, 0);
     throw new Error("A service retirement process is still active; evidence preserved.");
@@ -165,11 +174,11 @@ function recoverPending() {
   }
   // Restore the last owned state before retrying manager verification. This also
   // handles a crash after receipt movement but before removing the journal.
-  rollback(tx);
+  await rollback(tx);
 }
-function uninstall() {
+async function uninstall() {
   if (!["macos", "linux"].includes(platform)) throw new Error("Unknown service platform");
-  recoverPending();
+  await recoverPending();
   const prior = checkOwned();
   if (!prior) { console.log("No owned service file is installed; no service changed."); return; }
   guard(state, true); mkdirSync(state, { recursive: true, mode: 0o700 });
@@ -179,20 +188,21 @@ function uninstall() {
   // in-progress retirement. A dead process's journal is recovered on retry.
   writeFileSync(pending, JSON.stringify(tx) + "\n", { flag: "wx", mode: 0o600 });
   try {
-    verifyStop();
+    await verifyStop();
     assertExact(target, tx.unit); assertExact(receipt, tx.receipt);
     mkdirSync(dirname(tx.unit_archive), { mode: 0o700 });
     mkdirSync(dirname(tx.receipt_archive), { mode: 0o700 });
     moveExact(target, tx.unit_archive, tx.unit);
-    if (platform === "linux") command("systemctl", ["--user", "daemon-reload"]);
+    if (platform === "linux") await command("systemctl", ["--user", "daemon-reload"]);
     assertExact(tx.unit_archive, tx.unit); assertExact(receipt, tx.receipt);
     if (present(target)) throw new Error("A replacement service appeared; preserved.");
     moveExact(receipt, tx.receipt_archive, tx.receipt);
     assertExact(tx.unit_archive, tx.unit); assertExact(tx.receipt_archive, tx.receipt);
     removePending(tx);
   } catch (error) {
+    if(custodyUnresolved)throw new Error(`Service helper custody is unresolved; no further effects or retry. Recovery evidence remains at ${pending}.`);
     try {
-      if (present(tx.unit_archive) || present(tx.receipt_archive)) rollback(tx);
+      if (present(tx.unit_archive) || present(tx.receipt_archive)) await rollback(tx);
       else { removePending(tx); cleanupEmptyArchives(tx); }
     } catch (recovery: any) {
       throw new Error(`${String(error)} Recovery evidence retained at ${pending}: ${recovery.message}`);
@@ -205,7 +215,7 @@ function uninstall() {
 }
 
 guard(receipt); guard(target); guard(pending);
-if (operation === "uninstall") uninstall();
+if (operation === "uninstall") await uninstall();
 else {
   if (present(pending)) throw new Error("Service retirement is incomplete; rerun autostart uninstall to recover its owned files.");
   if (operation === "check") checkOwned();
