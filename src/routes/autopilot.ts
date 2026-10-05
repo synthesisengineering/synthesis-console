@@ -1,13 +1,15 @@
 import { Hono, type MiddlewareHandler } from "hono";
 import type { ConsoleConfig } from "../config.js";
 import { activeSources } from "../active-sources.js";
-import { operatorProjects, readOperator, safeSegment, RUN_ID } from "../autopilot.js";
-import { operatorLanding, operatorDetail } from "../views/autopilot.js";
+import { operatorProjects, readOperator, safeSegment, RUN_ID, OperatorObservations, operatorObservationBinding, type OperatorObservationBinding } from "../autopilot.js";
+import { operatorLanding, operatorDetail, operatorObservationPanel } from "../views/autopilot.js";
 import { layout } from "../views/layout.js";
 
-export function autopilotRoutes(config: ConsoleConfig, reader = readOperator) {
+export function autopilotRoutes(config: ConsoleConfig, reader = readOperator, binding: OperatorObservationBinding = operatorObservationBinding) {
+  const observations = new OperatorObservations(reader, binding);
   const app = new Hono();
   const localRead: MiddlewareHandler = async (c, next) => {
+    c.header("Cache-Control","no-store");
     const url = new URL(c.req.url);
     const host = c.req.header("host");
     let hostname: string;
@@ -48,10 +50,30 @@ export function autopilotRoutes(config: ConsoleConfig, reader = readOperator) {
         const limit = limitText === undefined ? 8 : Number(limitText);
         if (!Number.isSafeInteger(limit) || limit < 1 || limit > 32 ||
             (cursor !== undefined && (run || !/^[A-Za-z0-9_=-]{1,512}$/.test(cursor)))) return c.json({error: "Invalid page selection."}, 400);
-        const result = await reader(source, project, run, {limit, cursor});
-        if (prefix.startsWith("/api")) return c.json(result, result.available ? 200 : 503);
-        return c.html(layout({title: "Autopilot status", content: operatorDetail(source, project, result, suffix === "/questions"),
-          sources: config.sources, activeSourceNames: active.map(s => s.name), currentPath: "/autopilot", demoMode: config.demoMode}), result.available ? 200 : 503);
+        const observationId = c.req.query("observation");
+        const fragment = c.req.query("fragment");
+        if ((observationId !== undefined && !RUN_ID.test(observationId)) ||
+            (fragment !== undefined && (fragment !== "1" || observationId === undefined || prefix.startsWith("/api")))) return c.json({error:"Invalid observation selection."},400);
+        let result = observationId === undefined ? observations.start(source,project,run,{limit,cursor}) : observations.observe(observationId,source,project,run,{limit,cursor});
+        // Already-resolved injected/fast readers may finish in this microtask. An
+        // unresolved helper is never awaited by the HTTP request.
+        await Promise.resolve();
+        if(result.observation.id) result=observations.observe(result.observation.id,source,project,run,{limit,cursor});
+        const state=result.observation.state;
+        const pending=state==="PENDING_RUNTIME" || state==="PENDING_READER";
+        const status=pending?202:state==="UNAVAILABLE"?410:result.available?200:503;
+        if (prefix.startsWith("/api")) return c.json(result,status);
+        const url=new URL(c.req.url);
+        url.searchParams.delete("fragment"); url.searchParams.delete("observation");
+        url.searchParams.set("sources",source.name);
+        const newUrl=url.pathname+url.search;
+        if(result.observation.id)url.searchParams.set("observation",result.observation.id);
+        const observeUrl=url.pathname+url.search;
+        url.searchParams.set("fragment","1");
+        const links={newUrl,observeUrl,pollUrl:url.pathname+url.search};
+        if(fragment==="1")return c.html(operatorObservationPanel(source,project,result,suffix==="/questions",links),status);
+        return c.html(layout({title: "Autopilot status", content: operatorDetail(source, project, result, suffix === "/questions",links),
+          sources: config.sources, activeSourceNames: active.map(s => s.name), currentPath: "/autopilot", demoMode: config.demoMode}),status);
       });
     }
   }

@@ -1,6 +1,6 @@
 import type { Source } from "../config.js";
 import { displayName } from "../config.js";
-import type { OperatorResult, OperatorRun } from "../autopilot.js";
+import type { OperatorResult, OperatorRun, OperatorObservation } from "../autopilot.js";
 import { escapeHtml as h, escapeAttr as a } from "../utils.js";
 
 const json = (value: unknown) => h(JSON.stringify(value ?? null, null, 2));
@@ -33,13 +33,17 @@ export function operatorGuidance() {
 }
 export function operatorLanding(groups: {source: Source; projects: {id: string; name: string}[]; diagnostic: string | null}[]) {
   return `<h1>Autopilot</h1><p class="ap-lead">Your work, durable questions, and a path back to the owner.</p>
-    <p>Only active sources appear here. Run status is read from its verified journal on each request; this page does not certify that an agent is currently running.</p>
+    <p>Only active sources appear here. A new read verifies the run journal. Reopening an observation shows that same read and its original timestamp; this page does not certify that an agent is currently running.</p>
     <section><h2>Projects</h2>${groups.map(group => `<article><span class="source-badge">${h(displayName(group.source))}</span>
       ${group.diagnostic ? `<p role="status">${h(group.diagnostic)}</p>` : `<ul>${group.projects.map(p => `<li><a href="/autopilot/${encodeURIComponent(group.source.name)}/${encodeURIComponent(p.id)}">${h(p.name)}</a></li>`).join("")}</ul>`}</article>`).join("")}</section>
     ${firstTask()}${preparedArea()}${operatorGuidance()}${operatorScript()}`;
 }
 function runCard(run: OperatorRun, path: string, questionsOnly: boolean) {
   const exact = run.currentness === "JOURNAL_VERIFIED_RECORDED_STATE";
+  if (!exact) return `<article class="ap-run ap-unhealthy"><header><strong>Unhealthy · unverifiable</strong></header>
+    <p>Journal could not be verified. Recorded contents, questions and progress are unknown.</p>
+    ${run.diagnostics.map(value=>`<p role="status" class="ap-warning">${h(value)}</p>`).join("")}
+    <p>Run ${h(run.run_id)} · no recorded revision or controls are available.</p></article>`;
   const terminal = ["completed", "cancelled", "incomplete"].includes(run.recorded_status);
   const tasks = run.tasks || [];
   const done = tasks.filter(x => x.status === "done").length;
@@ -63,19 +67,62 @@ function runCard(run: OperatorRun, path: string, questionsOnly: boolean) {
     <details><summary>Run identity and recorded head</summary><p>Run ${h(run.run_id)} · revision ${h(String(run.revision ?? "unknown"))}</p><p>${h(run.journal_head || "Unverified")}</p>${exact ? `<a href="${path}/runs/${encodeURIComponent(run.run_id)}">Open exact run</a>` : ""}</details>
     </article>`;
 }
-export function operatorDetail(source: Source, project: string, result: OperatorResult, questionsOnly = false) {
+export interface ObservationLinks {newUrl:string;observeUrl:string;pollUrl:string}
+export function operatorObservationPanel(source: Source, project: string, result: OperatorResult, questionsOnly=false, links?:ObservationLinks) {
   const path = `/autopilot/${encodeURIComponent(source.name)}/${encodeURIComponent(project)}`;
-  const report = result.report;
-  return `<h1>${questionsOnly ? "Durable questions" : "Autopilot status"}</h1><span class="source-badge">${h(displayName(source))}</span> <span>${h(project)}</span>
-    <nav class="ap-actions"><a href="/autopilot">All active projects</a><a href="${path}">Run status</a><a href="${path}/questions">Question fallback</a><a href="${path}">Refresh</a></nav>
-    <p class="ap-limit">Recorded state only. Fresh ownership, native liveness, delivered notifications and loaded skills are unknown. Reading or copying a question never resolves it or grants approval.</p>
+  const report=result.report;
+  const observation=(result as Partial<OperatorObservation>).observation;
+  const pending=observation?.state==="PENDING_RUNTIME" || observation?.state==="PENDING_READER";
+  return `<section class="ap-observation" data-observation="${a(observation?.id || "")}" data-pending="${pending ? "true":"false"}" ${pending && links ? `data-poll="${a(links.pollUrl)}"`:""}>
+    ${pending ? `<article role="status" aria-live="polite"><h2>Checking project status</h2><p>${observation?.state==="PENDING_RUNTIME" ? "Preparing the status read.":"Reading project status."} Results will appear when this check finishes.</p></article>`:""}
     ${result.diagnostic ? `<article class="ap-unhealthy"><h2>Unhealthy / unavailable</h2><p>${h(result.diagnostic)}</p><p>Retain the existing run and ask its owner to doctor the named boundary.</p></article>` : ""}
+    ${observation ? `<details><summary>Observation details</summary><p>Observation ${h(observation.id || "unavailable")} · started ${h(observation.started_at || "unknown")}. Redisplaying this result does not verify current state.</p></details>`:""}
     ${report ? `<p>Read ${h(report.observed_at)} · ${report.runs.length} recorded run(s)${report.pagination ? ` on this page of ${report.pagination.total} retained run(s)` : ""}</p>
       ${report.resolution ? `<p>Project selection: ${h(report.resolution.status)} · ${h(report.project || "No path selected")}. Local causal evidence only; no fetch, refresh or authority granted.</p>` : ""}
       ${report.pagination ? `<p>Recent filesystem changes guide discovery; timestamps do not prove progress. Questions below cover this page only.</p><nav class="ap-actions"><a href="${path}${questionsOnly ? "/questions" : ""}?sources=${encodeURIComponent(source.name)}&amp;limit=${report.pagination.limit}">Newest runs / refresh inventory</a>${report.pagination.next_cursor ? `<a rel="next" href="${path}${questionsOnly ? "/questions" : ""}?sources=${encodeURIComponent(source.name)}&amp;limit=${report.pagination.limit}&amp;cursor=${encodeURIComponent(report.pagination.next_cursor)}">Older runs and questions</a>` : ""}</nav>` : ""}
-      ${report.runs.length ? report.runs.filter(r => !questionsOnly || r.questions.length || r.status === "unhealthy").map(r => runCard(r, path, questionsOnly)).join("") || "<p>No pending questions on this page. Other pages, delivery and native UI health are not covered by this statement.</p>" : report.project ? "<p>No run journals exist for this project. Delegate the first task below; the agent establishes its durable home.</p>" : "<p>No run state was selected. Resolve the reported project conflict through its owner.</p>"}
+      ${report.runs.length ? report.runs.filter(r => !questionsOnly || r.currentness !== "JOURNAL_VERIFIED_RECORDED_STATE" || r.questions.length || r.status === "unhealthy").map(r => runCard(r, path, questionsOnly)).join("") || "<p>No pending questions on this page. Other pages, delivery and native UI health are not covered by this statement.</p>" : report.project ? "<p>No run journals exist for this project. Delegate the first task below; the agent establishes its durable home.</p>" : "<p>No run state was selected. Resolve the reported project conflict through its owner.</p>"}
       <details><summary>Reader provenance</summary><p>CLI reader: ${h(report.helper.path)}</p><p>SHA-256: ${h(report.helper.sha256)}</p><p>Installed vs source selection follows Console's configured skill resolver. Loaded in the native session: UNKNOWN.</p></details>` : ""}
-    ${!questionsOnly ? firstTask(project) : ""}${preparedArea()}${operatorGuidance()}${operatorScript()}`;
+    ${links ? `<p><a class="ap-observe-link" href="${a(links.observeUrl)}">View this same observation</a> · <a href="${a(links.newUrl)}">Start a new read</a></p>`:""}
+    <p class="ap-poll-state" role="status"></p></section>`;
+}
+export function operatorDetail(source: Source, project: string, result: OperatorResult, questionsOnly = false, links?:ObservationLinks) {
+  const path = `/autopilot/${encodeURIComponent(source.name)}/${encodeURIComponent(project)}`;
+  return `<h1>${questionsOnly ? "Durable questions" : "Autopilot status"}</h1><span class="source-badge">${h(displayName(source))}</span> <span>${h(project)}</span>
+    <nav class="ap-actions"><a href="/autopilot">All active projects</a><a href="${path}">Run status</a><a href="${path}/questions">Question fallback</a><a href="${a(links?.observeUrl || path)}">Refresh this observation</a></nav>
+    <p class="ap-limit">Recorded state only. Fresh ownership, native liveness, delivered notifications and loaded skills are unknown. Reading or copying a question never resolves it or grants approval.</p>
+    ${operatorObservationPanel(source,project,result,questionsOnly,links)}
+    ${!questionsOnly ? firstTask(project) : ""}${preparedArea()}${operatorGuidance()}${operatorScript()}${links ? observationScript():""}`;
+}
+export function observationScript() {
+  return `<script>
+  (()=>{
+    // Reload and restored-tab navigation observe this attempt, never start another.
+    const initial=document.querySelector('.ap-observation');
+    const same=initial?.querySelector('.ap-observe-link')?.getAttribute('href');
+    if(initial?.dataset.observation && same){
+      try{const url=new URL(same,location.href);if(url.origin===location.origin)history.replaceState(null,'',url.pathname+url.search);}catch{}
+    }
+    let polls=0;
+    async function poll(){
+      const panel=document.querySelector('.ap-observation[data-pending="true"]');
+      if(!panel || !panel.dataset.poll)return;
+      const state=panel.querySelector('.ap-poll-state');
+      if(polls++>=24){state.textContent='Automatic observation checks have stopped. View this same observation to check its result; no new read has started.';return;}
+      const controller=new AbortController();
+      const timer=setTimeout(()=>controller.abort(),3000);
+      try {
+        const response=await fetch(panel.dataset.poll,{cache:'no-store',credentials:'same-origin',signal:controller.signal});
+        const documentResult=new DOMParser().parseFromString(await response.text(),'text/html');
+        const next=documentResult.body.firstElementChild;
+        if(!next || !next.matches('.ap-observation') || next.dataset.observation!==panel.dataset.observation)throw new Error('Observation response is unavailable.');
+        panel.replaceWith(next);
+        if(next.dataset.pending==='true')setTimeout(poll,1000);
+      } catch {state.textContent='The observation check did not complete. View this same observation to check its result; no new read has started.';}
+      finally {clearTimeout(timer);}
+    }
+    if(document.querySelector('.ap-observation[data-pending="true"]'))setTimeout(poll,1000);
+  })();
+  </script>`;
 }
 export function operatorScript() {
   return `<script>
