@@ -1,7 +1,7 @@
 import { finiteCommand } from "./finite-command.js";
 import { lstatSync, realpathSync, readFileSync } from "node:fs";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import type { Source } from "./config.js";
 import { loadProjectIndex } from "./parsers/yaml.js";
 import { resolveSkillScript } from "./skill-resolution.js";
@@ -31,7 +31,7 @@ export interface OperatorReport {
   resolution?: {status: string; selected_path: string | null; selected_head: string | null; selected_tree: string | null; issues: string[]; fetch: false; refresh_coordination: false; authority_granted: false};
   pagination?: {total: number; offset: number; limit: number; next_cursor: string | null; order: "FILESYSTEM_RECENCY_HINT"; questions_scope: "THIS_PAGE_ONLY"; inventory_sha256: string};
 }
-export interface OperatorResult { available: boolean; report: OperatorReport | null; diagnostic: string | null }
+export interface OperatorResult { available: boolean; report: OperatorReport | null; diagnostic: string | null; cleanupComplete?: boolean }
 
 export function safeSegment(value: string): boolean {
   return /^[A-Za-z0-9][A-Za-z0-9_.-]{0,159}$/.test(value) && value !== "." && value !== "..";
@@ -130,8 +130,91 @@ export function validateReport(value: unknown, project: string, script: string, 
   }
   return data;
 }
+export type OperatorPage = {limit?: number; cursor?: string};
+export type OperatorPendingPhase = "PENDING_RUNTIME" | "PENDING_READER";
+export type OperatorObservationState = OperatorPendingPhase | "COMPLETE" | "REFUSED" | "FAILED" | "CLEANUP_UNRESOLVED" | "BUSY" | "UNAVAILABLE";
+export type OperatorReader = (source: Source, id: string, runId?: string, page?: OperatorPage, phase?: (value: OperatorPendingPhase) => void) => Promise<OperatorResult>;
+export type OperatorObservationBinding = (source: Source, id: string, runId?: string, page?: OperatorPage) => string;
+export interface OperatorObservation extends OperatorResult {
+  authority_granted: false;
+  observation: {id: string | null; state: OperatorObservationState; started_at: string | null};
+}
+function selectionKey(source: Source, id: string, runId: string | undefined, page: OperatorPage): string {
+  if (!safeSegment(source.name) || !safeSegment(id) || (runId !== undefined && !RUN_ID.test(runId))) throw new Error("Invalid operator selection.");
+  const limit = page.limit ?? 8;
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > 32 ||
+      (page.cursor !== undefined && (runId || !/^[A-Za-z0-9_=-]{1,512}$/.test(page.cursor)))) throw new Error("Invalid operator page selection.");
+  return JSON.stringify([source.name, source.root, source.projects_dir, id, runId ?? null, limit, page.cursor ?? null]);
+}
+/** Cheap invalidation only. Equal bindings never certify unchanged project content. */
+export function operatorObservationBinding(source: Source, id: string, runId?: string, page: OperatorPage = {}): string {
+  selectionKey(source, id, runId, page);
+  const index = operatorIndex(source, id);
+  const script = operatorScript();
+  return JSON.stringify([index, createHash("sha256").update(readFileSync(index)).digest("hex"),
+    script, createHash("sha256").update(readFileSync(script)).digest("hex")]);
+}
+interface ObservationSlot {
+  id: string; key: string; binding: string; startedAt: string; running: boolean;
+  state: OperatorObservationState; result: OperatorResult; pinned: boolean;
+}
+/** Two bounded delivery slots for the existing finite reader. Polls never start work. */
+export class OperatorObservations {
+  private slots: ObservationSlot[] = [];
+  constructor(private readonly reader: OperatorReader = readOperator,
+    private readonly binding: OperatorObservationBinding = operatorObservationBinding) {}
+  private empty(state: OperatorObservationState, diagnostic: string, slot?: ObservationSlot): OperatorObservation {
+    return {available:false, report:null, diagnostic, authority_granted:false,
+      observation:{id:slot?.id ?? null,state,started_at:slot?.startedAt ?? null}};
+  }
+  private snapshot(slot: ObservationSlot): OperatorObservation {
+    return {...structuredClone(slot.result), authority_granted:false,
+      observation:{id:slot.id,state:slot.state,started_at:slot.startedAt}};
+  }
+  observe(observationId: string, source: Source, id: string, runId?: string, page: OperatorPage = {}): OperatorObservation {
+    try {
+      const key=selectionKey(source,id,runId,page);
+      const slot=this.slots.find(item=>item.id===observationId && item.key===key);
+      if (!RUN_ID.test(observationId) || !slot) return this.empty("UNAVAILABLE","This observation is unavailable. Start a new read explicitly.");
+      if (this.binding(source,id,runId,page)!==slot.binding) return this.empty("REFUSED","The source registry or reader changed. This observation cannot be displayed.",slot);
+      return this.snapshot(slot);
+    } catch { return this.empty("REFUSED","The selected source is no longer safe or available."); }
+  }
+  start(source: Source, id: string, runId?: string, page: OperatorPage = {}): OperatorObservation {
+    let key: string, binding: string;
+    try { key=selectionKey(source,id,runId,page); binding=this.binding(source,id,runId,page); }
+    catch { return this.empty("REFUSED","The selected source is unsafe or unavailable."); }
+    const existing=this.slots.find(item=>item.key===key && (item.running || item.pinned));
+    if (existing) return this.observe(existing.id,source,id,runId,page);
+    if (this.slots.length===2) {
+      const retired=this.slots.findIndex(item=>!item.running && !item.pinned);
+      if (retired<0) return this.empty("BUSY","Two bounded reads still hold their slots. Observe them or wait for owner cleanup.");
+      this.slots.splice(retired,1);
+    }
+    const slot:ObservationSlot={id:randomUUID(),key,binding,startedAt:new Date().toISOString(),running:true,
+      state:"PENDING_RUNTIME",result:{available:false,report:null,diagnostic:null},pinned:false};
+    this.slots.push(slot);
+    // Attach both continuations before returning. Client disconnect or polling cannot
+    // abandon custody, relaunch, or reset either existing helper deadline.
+    let pending: Promise<OperatorResult>;
+    try { pending=this.reader(source,id,runId,{...page},phase=>{ if(slot.running)slot.state=phase; }); }
+    catch(error) { pending=Promise.reject(error); }
+    void pending.then(result=>{
+      slot.pinned=result.cleanupComplete===false;
+      if (Buffer.byteLength(JSON.stringify(result),"utf8")>MAX_OUTPUT_BYTES) throw new Error("Observation report exceeds its output bound.");
+      slot.result=structuredClone(result);
+      slot.state=slot.pinned?"CLEANUP_UNRESOLVED":result.available?"COMPLETE":result.report?"REFUSED":"FAILED";
+    }).catch(error=>{
+      if(error instanceof HelperCustodyError && !error.cleanupComplete)slot.pinned=true;
+      slot.result={available:false,report:null,diagnostic:error instanceof HelperCustodyError?error.message.slice(0,2048):"Operator observation failed.",cleanupComplete:!slot.pinned};
+      slot.state=slot.pinned?"CLEANUP_UNRESOLVED":"FAILED";
+    }).finally(()=>{slot.running=false;});
+    return this.snapshot(slot);
+  }
+}
+
 let inFlight = 0;
-export async function readOperator(source: Source, id: string, runId?: string, page: {limit?: number; cursor?: string} = {}): Promise<OperatorResult> {
+export async function readOperator(source: Source, id: string, runId?: string, page: OperatorPage = {}, phase?: (value: OperatorPendingPhase) => void): Promise<OperatorResult> {
   if (inFlight >= 2) return {available: false, report: null, diagnostic: "Two reads are in progress. Refresh after they finish."};
   inFlight++;
   let cleanupComplete=true;
@@ -145,9 +228,11 @@ export async function readOperator(source: Source, id: string, runId?: string, p
     const before = createHash("sha256").update(readFileSync(script)).digest("hex");
     // Use the same owned runtime verifier as every Python-backed Console action,
     // with a finite asynchronous boundary around both resolution and journal read.
+    phase?.("PENDING_RUNTIME");
     const python = (await boundedCommand("bash", [resolve(import.meta.dir, "../scripts/python-runtime.sh"), "resolve"], READ_TIMEOUT_MS, "Runtime verification")).trim();
     if (!isAbsolute(python) || python.includes("\n") ||
         (process.env.SYNTHESIS_PYTHON_BIN?.trim() && process.env.SYNTHESIS_PYTHON_BIN.trim() !== python)) throw new Error("Verified Python runtime selection differs. Ask your agent to repair Console setup.");
+    phase?.("PENDING_READER");
     const output = await boundedCommand(python, ["-I", "-B", script, "--index", index, "--project-id", id,
       "--limit", String(limit), ...(page.cursor ? ["--cursor", page.cursor] : []), ...(runId ? ["--run-id", runId] : [])]);
     const report = validateReport(JSON.parse(output), "", script, runId, {path: index, id});
@@ -157,7 +242,7 @@ export async function readOperator(source: Source, id: string, runId?: string, p
     return {available: true, report, diagnostic: null};
   } catch (error) {
     if(error instanceof HelperCustodyError)cleanupComplete=error.cleanupComplete;
-    return {available: false, report: null, diagnostic: error instanceof Error ? error.message : "Operator read unavailable."};
+    return {available: false, report: null, diagnostic: error instanceof Error ? error.message : "Operator read unavailable.", cleanupComplete};
   } finally { if(cleanupComplete)inFlight--; }
 }
 
