@@ -1385,28 +1385,30 @@ function layoutScript(): string {
         });
       }
 
-      // Context-integrity chip: green — corpus clean; amber — defects in the
-      // durable layer; gray — no report and no doctor. Same visual language
-      // as the sync chip; the number is the defect count.
+      // Context-integrity chip (v5 context doctor over the active sources):
+      // green — no defects; amber — defects in the durable layer, or a source
+      // the doctor could not audit; gray — no doctor or nothing to audit.
+      // Same visual language as the sync chip; the number is the defect count.
       function renderContextChip(data) {
         var chip = document.getElementById('context-chip');
         if (!chip) return;
         var count = chip.querySelector('.sync-chip-count');
         chip.classList.remove('sync-ok', 'sync-dirty', 'sync-alert', 'sync-na');
-        if (!data || (data.defects === null && !data.doctorAvailable)) {
+        if (!data || data.defects === null) {
           chip.classList.add('sync-na');
-          chip.title = 'Context integrity: status unavailable';
-        chip.setAttribute('aria-label',chip.title);
+          chip.title = 'Context integrity: ' + (data && !data.doctorAvailable ? 'context doctor not installed' : 'nothing to audit');
+          chip.setAttribute('aria-label', chip.title);
           if (count) count.textContent = '';
           return;
         }
         var defects = data.defects || 0;
-        chip.classList.add(defects > 0 ? 'sync-dirty' : 'sync-ok');
-        chip.title = 'Context integrity: ' + (defects > 0 ? defects + ' defect(s) in the durable layer' : 'corpus clean')
-          + (data.generatedAt ? ' (as of ' + data.generatedAt + ')' : '')
-          + (data.auditing ? ' · audit running' : '');
-        chip.setAttribute('aria-label',chip.title);
-        if (count) count.textContent = defects > 0 ? String(defects) : '';
+        var failed = data.failedSources || 0;
+        chip.classList.add(defects > 0 || failed > 0 ? 'sync-dirty' : 'sync-ok');
+        chip.title = 'Context integrity: ' + (defects > 0 ? defects + ' defect(s) in the durable layer' : 'no defects')
+          + (failed > 0 ? ', ' + failed + ' source(s) could not be audited' : '')
+          + (data.checkedAt ? ' (as of ' + data.checkedAt + ')' : '');
+        chip.setAttribute('aria-label', chip.title);
+        if (count) count.textContent = defects > 0 ? String(defects) : (failed > 0 ? '!' : '');
       }
 
       function pollContextChip() {
