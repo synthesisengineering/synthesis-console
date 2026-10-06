@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "owner": "synthesis-onboarding/runtime_payload.py",
+  "owner": "synthesis-skills/synthesis/install.py",
   "console_owner": "synthesis-console/scripts/service-ownership.ts",
   "platforms": {
     "macos": {
@@ -61,10 +61,11 @@
     }
   },
   "runtime_paths": {
-    "git-hooks": "{home}/.synthesis/git-hooks",
-    "message-guard": "{home}/.synthesis/message-guard",
-    "kernel": "{engine_state}/bin",
-    "day-end": "{home}/.synthesis/day-end/bin"
+    "runtime": "{synthesis_home}/current",
+    "bin": "{synthesis_home}/bin",
+    "state": "{synthesis_home}/state",
+    "git-hooks": "{synthesis_home}/git-hooks",
+    "day-end": "{synthesis_home}/bin"
   },
   "permissions": {
     "ownership_receipt_mode": 384,

@@ -1325,16 +1325,16 @@ function layoutScript(): string {
       // Apply persisted sidebar state on initial load.
       if (cockpitView()) applySidebarState();
 
-      // ===== Repo-sync chip (synthesis-repo-guard v2) =====
+      // ===== Repo-sync chip (synthesis-repo-guard) =====
       //
       // Ambient sync status in the nav on every page. Polls the read-only
       // status endpoint every 5 minutes (plus once at load). The endpoint
-      // itself refreshes the underlying detector report when stale, so the
-      // chip stays current without any mutating background job. Colors:
+      // itself starts a read-only scan when the report is stale, so the chip
+      // stays current without any mutating background job. Colors:
       //   green  — all repos clean & pushed
-      //   amber  — repos need attention (dirty/ahead/behind)
-      //   red    — checkpoint alerts need a human (divergence, blocked hook)
-      //   gray   — repo-guard skill not installed / status unavailable
+      //   amber  — repos need attention (uncommitted, unpushed, behind) or
+      //            the report could not be read
+      //   gray   — repo guard not installed / status unavailable
       // A 🔇 suffix mirrors the quiet-audio mute state.
       var SYNC_POLL_MS = 5 * 60 * 1000;
 
@@ -1343,29 +1343,28 @@ function layoutScript(): string {
         if (!chip) return;
         var count = chip.querySelector('.sync-chip-count');
         chip.classList.remove('sync-ok', 'sync-dirty', 'sync-alert', 'sync-na');
-        if (!data || data.installed === false) {
+        if (!data || (data.installed === false && !data.generatedAt)) {
           chip.classList.add('sync-na');
           chip.title = 'Repo sync: status unavailable';
-        chip.setAttribute('aria-label',chip.title);
+          chip.setAttribute('aria-label', chip.title);
           if (count) count.textContent = '';
           return;
         }
-        var cls = 'sync-ok';
-        var label = 'all repos synced';
-        if (data.alertCount > 0) {
-          cls = 'sync-alert';
-          label = data.alertCount + ' checkpoint alert(s) need you';
-        } else if (data.dirtyCount > 0) {
+        var label = data.generatedAt ? 'all repos synced' : 'no report yet';
+        var cls = data.generatedAt ? 'sync-ok' : 'sync-na';
+        if (data.dirtyCount > 0) {
           cls = 'sync-dirty';
           label = data.dirtyCount + ' repo(s) with unsynced changes';
+        } else if (data.error) {
+          cls = 'sync-dirty';
+          label = data.error;
         }
         chip.classList.add(cls);
         var muted = data.quietAudio ? ' · audio muted' : '';
         chip.title = 'Repo sync: ' + label + (data.generatedAt ? ' (as of ' + data.generatedAt + ')' : '') + muted;
-        chip.setAttribute('aria-label',chip.title);
+        chip.setAttribute('aria-label', chip.title);
         if (count) {
-          var n = data.alertCount > 0 ? data.alertCount : data.dirtyCount;
-          count.textContent = (n > 0 ? String(n) : '') + (data.quietAudio ? '🔇' : '');
+          count.textContent = (data.dirtyCount > 0 ? String(data.dirtyCount) : '') + (data.quietAudio ? '🔇' : '');
         }
       }
 

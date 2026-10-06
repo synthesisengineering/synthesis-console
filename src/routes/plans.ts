@@ -14,7 +14,6 @@ import { listLedgers, readLedger } from "../parsers/ledger.js";
 import { loadSlackDirectory } from "../parsers/slack-directory.js";
 import { resolveMentions, listResolvedMentions } from "../parsers/slack-mentions.js";
 import { postSlackMessage } from "../integrations/slack-send.js";
-import { fireProducerCheckpoint } from "../sync.js";
 import { layout } from "../views/layout.js";
 import { sourceGateView } from "../views/source-gate.js";
 import { planListView, planDetailView } from "../views/plan.js";
@@ -878,10 +877,6 @@ function writeAtomic(filePath: string, content: string): boolean {
   try {
     writeFileSync(tempPath, content, "utf-8");
     renameSync(tempPath, filePath);
-    // Producer checkpoint (synthesis-repo-guard): the console just changed a
-    // durable file — commit + push exactly that file via the shared checkpoint
-    // script. Fire-and-forget; never blocks or fails the save.
-    fireProducerCheckpoint(filePath);
     return true;
   } catch {
     return false;

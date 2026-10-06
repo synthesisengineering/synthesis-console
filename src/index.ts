@@ -63,7 +63,7 @@ app.route("/", planRoutes(config));
 app.route("/", peopleRoutes(config));
 app.route("/", ledgerRoutes(config));
 // A sample-data process must not expose or mutate the host's machine-wide
-// diagnostics, checkpoint state or quiet-audio preference through direct URLs.
+// diagnostics, repository state or quiet-audio preference through direct URLs.
 if (!config.demoMode) {
   app.route("/", syncRoutes(config));
   app.route("/", contextIntegrityRoutes(config));

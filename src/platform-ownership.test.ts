@@ -53,3 +53,18 @@ test("explicit XDG paths preserved", () => {
   expect(v.console_unit).toBe("/conf/systemd/user/synthesis-console.service");
   expect(v.console_python).toBe("/data/synthesis-console/python-runtime");
 });
+test("runtime paths name the synthesis v5 runtime, honoring SYNTHESIS_HOME", () => {
+  expect(platformOwnership("/synthetic", {}, "darwin", "").runtime_paths).toEqual({
+    runtime: "/synthetic/.synthesis/v5/current",
+    bin: "/synthetic/.synthesis/v5/bin",
+    state: "/synthetic/.synthesis/v5/state",
+    "git-hooks": "/synthetic/.synthesis/v5/git-hooks",
+    "day-end": "/synthetic/.synthesis/v5/bin",
+  });
+  expect(
+    platformOwnership("/synthetic", { SYNTHESIS_HOME: "/opt/v5" }, "linux", "Linux").runtime_paths.bin,
+  ).toBe("/opt/v5/bin");
+  expect(() =>
+    platformOwnership("/synthetic", { SYNTHESIS_HOME: "relative/v5" }, "linux", "Linux"),
+  ).toThrow();
+});
