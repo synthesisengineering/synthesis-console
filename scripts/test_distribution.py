@@ -129,10 +129,8 @@ def test_homebrew_uses_the_official_bun_formula_and_runtime(distribution):
     # The installed launcher must resolve the same dependency even when a
     # different bun precedes Homebrew on the user's incoming PATH.
     assert 'PATH: "#{Formula["oven-sh/bun/bun"].opt_bin}:$PATH"' in formula
-    assert (
-        'SYNTHESIS_BOOTSTRAP_PYTHON: Formula["python@3.12"].opt_bin/"python3.12"'
-        in formula
-    )
+    # The v5 Console runs the plugin's standard-library scripts with python3 from PATH.
+    assert "python@3.12" not in formula and "SYNTHESIS_BOOTSTRAP_PYTHON" not in formula
     assert record["archive"]["sha256"] in formula
     ruby = shutil.which("ruby")
     if ruby:
