@@ -9,6 +9,8 @@
 # Uninstall with: scripts/uninstall-autostart-macos.sh
 
 set -euo pipefail
+# bash 5.2 reads `&` in a ${var//pattern/replacement} as the matched text; xml_escape needs it literal.
+shopt -u patsub_replacement 2>/dev/null || true
 
 LABEL="org.synthesisengineering.console"
 PLIST_PATH="${HOME}/Library/LaunchAgents/${LABEL}.plist"
