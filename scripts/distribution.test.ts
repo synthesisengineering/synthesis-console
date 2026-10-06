@@ -7,7 +7,7 @@ const root = resolve(import.meta.dir, "..");
 const cli = join(root, "bin/synthesis-console");
 function fixture() { return mkdtempSync(join(realpathSync(tmpdir()), "console-distribution-")); }
 function run(args: string[], home: string) {
-  // Bun's documented transpiler cache is unrelated to Synthesis setup. Keep
+  // Bun's documented transpiler cache is unrelated to Synthesis. Keep
   // these zero-write fixtures hermetic; the default-runtime control below
   // separately verifies that only Bun's own cache may be created.
   return spawnSync(cli, args, { cwd: home, env: { ...process.env, HOME: home, SYNTHESIS_HOME: home, BUN_RUNTIME_TRANSPILER_CACHE_PATH: "0" }, encoding: "utf8" });
@@ -41,11 +41,13 @@ test("CLI help and version are inert from an unrelated directory", () => {
     expect(run(["unknown"],home).status).not.toBe(0);
   } finally { rmSync(home,{recursive:true,force:true}); }
 });
-test("source checkout setup fails closed until a verified core is bundled", () => {
+test("retired setup, core and supervision commands are refused without writes", () => {
   const home=fixture();
   try {
-    const r=run(["setup"],home); expect(r.status).not.toBe(0);
-    expect(r.stderr).toContain("core"); expect(readdirSync(home)).toEqual([]);
+    for (const args of [["setup"], ["setup","--no-dormant-core"], ["synthesis","status"], ["supervision","status"]]) {
+      const r=run(args,home); expect(r.status).toBe(2);
+      expect(r.stderr).toContain("Unknown command"); expect(readdirSync(home)).toEqual([]);
+    }
   } finally { rmSync(home,{recursive:true,force:true}); }
 });
 test("the announced URL follows actual listener creation", async () => {

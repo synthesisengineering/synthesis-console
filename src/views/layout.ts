@@ -59,7 +59,7 @@ export function layout(opts: {
         ${nav}
         ${opts.demoMode ? "" : `<li><a href="/sync" id="sync-chip" class="sync-chip" title="Repo sync status" aria-label="Repository sync status">●<span class="sync-chip-count"></span></a></li>
         <li><a href="/context" id="context-chip" class="sync-chip" title="Context integrity" aria-label="Context integrity status">◆<span class="sync-chip-count"></span></a></li>
-        <li><a href="/conformance" id="conformance-chip" class="sync-chip" title="Agent conformance" aria-label="Agent conformance status">▲<span class="sync-chip-count"></span></a></li>`}
+        <li><a href="/conformance" id="conformance-chip" class="sync-chip" title="Conformance (synthesis doctor)" aria-label="Conformance status from synthesis doctor">▲<span class="sync-chip-count"></span></a></li>`}
         ${picker}
       </ul>
     </nav>
@@ -1325,16 +1325,16 @@ function layoutScript(): string {
       // Apply persisted sidebar state on initial load.
       if (cockpitView()) applySidebarState();
 
-      // ===== Repo-sync chip (synthesis-repo-guard v2) =====
+      // ===== Repo-sync chip (synthesis-repo-guard) =====
       //
       // Ambient sync status in the nav on every page. Polls the read-only
       // status endpoint every 5 minutes (plus once at load). The endpoint
-      // itself refreshes the underlying detector report when stale, so the
-      // chip stays current without any mutating background job. Colors:
+      // itself starts a read-only scan when the report is stale, so the chip
+      // stays current without any mutating background job. Colors:
       //   green  — all repos clean & pushed
-      //   amber  — repos need attention (dirty/ahead/behind)
-      //   red    — checkpoint alerts need a human (divergence, blocked hook)
-      //   gray   — repo-guard skill not installed / status unavailable
+      //   amber  — repos need attention (uncommitted, unpushed, behind) or
+      //            the report could not be read
+      //   gray   — repo guard not installed / status unavailable
       // A 🔇 suffix mirrors the quiet-audio mute state.
       var SYNC_POLL_MS = 5 * 60 * 1000;
 
@@ -1343,29 +1343,28 @@ function layoutScript(): string {
         if (!chip) return;
         var count = chip.querySelector('.sync-chip-count');
         chip.classList.remove('sync-ok', 'sync-dirty', 'sync-alert', 'sync-na');
-        if (!data || data.installed === false) {
+        if (!data || (data.installed === false && !data.generatedAt)) {
           chip.classList.add('sync-na');
           chip.title = 'Repo sync: status unavailable';
-        chip.setAttribute('aria-label',chip.title);
+          chip.setAttribute('aria-label', chip.title);
           if (count) count.textContent = '';
           return;
         }
-        var cls = 'sync-ok';
-        var label = 'all repos synced';
-        if (data.alertCount > 0) {
-          cls = 'sync-alert';
-          label = data.alertCount + ' checkpoint alert(s) need you';
-        } else if (data.dirtyCount > 0) {
+        var label = data.generatedAt ? 'all repos synced' : 'no report yet';
+        var cls = data.generatedAt ? 'sync-ok' : 'sync-na';
+        if (data.dirtyCount > 0) {
           cls = 'sync-dirty';
           label = data.dirtyCount + ' repo(s) with unsynced changes';
+        } else if (data.error) {
+          cls = 'sync-dirty';
+          label = data.error;
         }
         chip.classList.add(cls);
         var muted = data.quietAudio ? ' · audio muted' : '';
         chip.title = 'Repo sync: ' + label + (data.generatedAt ? ' (as of ' + data.generatedAt + ')' : '') + muted;
-        chip.setAttribute('aria-label',chip.title);
+        chip.setAttribute('aria-label', chip.title);
         if (count) {
-          var n = data.alertCount > 0 ? data.alertCount : data.dirtyCount;
-          count.textContent = (n > 0 ? String(n) : '') + (data.quietAudio ? '🔇' : '');
+          count.textContent = (data.dirtyCount > 0 ? String(data.dirtyCount) : '') + (data.quietAudio ? '🔇' : '');
         }
       }
 
@@ -1385,28 +1384,30 @@ function layoutScript(): string {
         });
       }
 
-      // Context-integrity chip: green — corpus clean; amber — defects in the
-      // durable layer; gray — no report and no doctor. Same visual language
-      // as the sync chip; the number is the defect count.
+      // Context-integrity chip (v5 context doctor over the active sources):
+      // green — no defects; amber — defects in the durable layer, or a source
+      // the doctor could not audit; gray — no doctor or nothing to audit.
+      // Same visual language as the sync chip; the number is the defect count.
       function renderContextChip(data) {
         var chip = document.getElementById('context-chip');
         if (!chip) return;
         var count = chip.querySelector('.sync-chip-count');
         chip.classList.remove('sync-ok', 'sync-dirty', 'sync-alert', 'sync-na');
-        if (!data || (data.defects === null && !data.doctorAvailable)) {
+        if (!data || data.defects === null) {
           chip.classList.add('sync-na');
-          chip.title = 'Context integrity: status unavailable';
-        chip.setAttribute('aria-label',chip.title);
+          chip.title = 'Context integrity: ' + (data && !data.doctorAvailable ? 'context doctor not installed' : 'nothing to audit');
+          chip.setAttribute('aria-label', chip.title);
           if (count) count.textContent = '';
           return;
         }
         var defects = data.defects || 0;
-        chip.classList.add(defects > 0 ? 'sync-dirty' : 'sync-ok');
-        chip.title = 'Context integrity: ' + (defects > 0 ? defects + ' defect(s) in the durable layer' : 'corpus clean')
-          + (data.generatedAt ? ' (as of ' + data.generatedAt + ')' : '')
-          + (data.auditing ? ' · audit running' : '');
-        chip.setAttribute('aria-label',chip.title);
-        if (count) count.textContent = defects > 0 ? String(defects) : '';
+        var failed = data.failedSources || 0;
+        chip.classList.add(defects > 0 || failed > 0 ? 'sync-dirty' : 'sync-ok');
+        chip.title = 'Context integrity: ' + (defects > 0 ? defects + ' defect(s) in the durable layer' : 'no defects')
+          + (failed > 0 ? ', ' + failed + ' source(s) could not be audited' : '')
+          + (data.checkedAt ? ' (as of ' + data.checkedAt + ')' : '');
+        chip.setAttribute('aria-label', chip.title);
+        if (count) count.textContent = defects > 0 ? String(defects) : (failed > 0 ? '!' : '');
       }
 
       function pollContextChip() {
@@ -1425,39 +1426,37 @@ function layoutScript(): string {
         });
       }
 
-      // Agent-conformance chip: green only for fresh PASS evidence; amber for
-      // stale/unknown results; red for required failures; gray when both the
-      // checker and its evidence cache are unavailable.
+      // Conformance chip (synthesis doctor): green when the doctor reports
+      // healthy; red with the failure count when it does not; amber when the
+      // doctor could not produce a trustworthy result; gray when synthesis v5
+      // is not installed or the status is unavailable.
       function renderConformanceChip(data) {
         var chip = document.getElementById('conformance-chip');
         if (!chip) return;
         var count = chip.querySelector('.sync-chip-count');
         chip.classList.remove('sync-ok', 'sync-dirty', 'sync-alert', 'sync-na');
-        if (data && data.auditError) {
-          chip.classList.add('sync-dirty');
-          chip.title = 'Agent conformance: audit error · ' + data.auditError;
-        chip.setAttribute('aria-label',chip.title);
-          if (count) count.textContent = '!';
-          return;
-        }
-        if (!data || (!data.conformanceAvailable && !data.status)) {
+        if (!data || data.installed === false) {
           chip.classList.add('sync-na');
-          chip.title = 'Agent conformance: status unavailable';
-        chip.setAttribute('aria-label',chip.title);
+          chip.title = data ? 'Conformance: synthesis v5 is not installed' : 'Conformance: status unavailable';
+          chip.setAttribute('aria-label', chip.title);
           if (count) count.textContent = '';
           return;
         }
-        var failures = data.requiredFailures || 0;
-        var cls = failures > 0 ? 'sync-alert' : (data.stale || data.status !== 'PASS' ? 'sync-dirty' : 'sync-ok');
-        chip.classList.add(cls);
-        var label = failures > 0
-          ? failures + ' required failure(s)'
-          : (data.stale ? 'evidence stale' : (data.status || 'no recorded result'));
-        chip.title = 'Agent conformance: ' + label
-          + (data.checkedAt ? ' (as of ' + data.checkedAt + ')' : '')
-          + (data.auditing ? ' · audit running' : '');
-        chip.setAttribute('aria-label',chip.title);
-        if (count) count.textContent = failures > 0 ? String(failures) : (data.stale ? '!' : '');
+        if (data.healthy === null || data.error) {
+          chip.classList.add(data.failures > 0 ? 'sync-alert' : 'sync-dirty');
+          chip.title = 'Conformance: ' + (data.error || 'no doctor result');
+          chip.setAttribute('aria-label', chip.title);
+          if (count) count.textContent = '!';
+          return;
+        }
+        var failures = data.failures || 0;
+        var warnings = data.warnings || 0;
+        chip.classList.add(data.healthy ? 'sync-ok' : 'sync-alert');
+        chip.title = 'Conformance: ' + (data.healthy ? 'healthy' : failures + ' failing check(s)')
+          + (warnings ? ', ' + warnings + ' warning(s)' : '')
+          + (data.checkedAt ? ' (as of ' + data.checkedAt + ')' : '');
+        chip.setAttribute('aria-label', chip.title);
+        if (count) count.textContent = failures > 0 ? String(failures) : '';
       }
 
       function pollConformanceChip() {

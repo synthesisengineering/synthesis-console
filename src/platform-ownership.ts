@@ -39,9 +39,8 @@ export function platformOwnership(
   }
   const roots: Record<string, string> = {
     home,
-    engine_state:
-      env.SYNTHESIS_STATE_HOME ||
-      `${env.XDG_STATE_HOME || home + "/.local/state"}/synthesis`,
+    // The v5 runtime folder, the same rule as v5's paths.home().
+    synthesis_home: env.SYNTHESIS_HOME || home + "/.synthesis/v5",
     config: env.XDG_CONFIG_HOME || home + "/.config",
     state: env.XDG_STATE_HOME || home + "/.local/state",
     data: env.XDG_DATA_HOME || home + "/.local/share",

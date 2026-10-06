@@ -40,7 +40,6 @@ systemd_working_directory() {
 }
 
 REPO_ROOT_SYSTEMD="$(systemd_working_directory "${REPO_ROOT}")"
-source "${REPO_ROOT}/scripts/python-runtime.sh"
 
 if [[ "$(uname -s)" != "Linux" ]]; then
   echo "Error: This script is for Linux. For macOS, use install-autostart-macos.sh." >&2
@@ -99,23 +98,19 @@ systemd_escape_exec() {
 
 "${BUN_BIN}" "${REPO_ROOT}/scripts/service-ownership.ts" check "${UNIT_PATH}"
 
-# Foreign service state is refused before provisioning any runtime files.
-BOOTSTRAP_PYTHON="$(console_bootstrap_python)"
-PYTHON_BIN="$(provision_synthesis_python)"
-
-
 mkdir -p "${UNIT_DIR}"
 
-PRIVATE_CONTROL_PLANE_ENV=""
-if [[ "${SYNTHESIS_PRIVATE_CONTROL_PLANE:-0}" == "1" ]]; then
-  PRIVATE_CONTROL_PLANE_ENV="Environment=SYNTHESIS_PRIVATE_CONTROL_PLANE=1"
-fi
+# The Console's two synthesis overrides persist into the service only when set
+# here: where the v5 runtime lives, and the Python that runs v5 skill scripts.
+OVERRIDES_ENV=""
+for name in SYNTHESIS_HOME SYNTHESIS_PYTHON_BIN; do
+  if [[ -n "${!name:-}" ]]; then
+    OVERRIDES_ENV+="Environment=\"${name}=$(systemd_escape "${!name}")\""$'\n'
+  fi
+done
 
 BUN_BIN_SYSTEMD="$(systemd_escape_exec "${BUN_BIN}")"
 SERVICE_PATH_SYSTEMD="$(systemd_escape "$(dirname "${BUN_BIN}"):/usr/local/bin:/usr/bin:/bin")"
-PYTHON_BIN_SYSTEMD="$(systemd_escape "${PYTHON_BIN}")"
-BOOTSTRAP_PYTHON_SYSTEMD="$(systemd_escape "${BOOTSTRAP_PYTHON}")"
-DATA_HOME_SYSTEMD="$(systemd_escape "${XDG_DATA_HOME:-$HOME/.local/share}")"
 
 cat > "${UNIT_PATH}" <<UNIT
 [Unit]
@@ -130,12 +125,8 @@ ExecStart=/usr/bin/env "${BUN_BIN_SYSTEMD}" run scripts/console-cli.ts start
 Restart=on-failure
 RestartSec=10
 Environment="PATH=${SERVICE_PATH_SYSTEMD}"
-Environment="SYNTHESIS_PYTHON_BIN=${PYTHON_BIN_SYSTEMD}"
-Environment="SYNTHESIS_BOOTSTRAP_PYTHON=${BOOTSTRAP_PYTHON_SYSTEMD}"
 Environment=PYTHONDONTWRITEBYTECODE=1
-Environment="XDG_DATA_HOME=${DATA_HOME_SYSTEMD}"
-${PRIVATE_CONTROL_PLANE_ENV}
-
+${OVERRIDES_ENV}
 [Install]
 WantedBy=default.target
 UNIT
@@ -153,7 +144,6 @@ echo "Synthesis Console is installed to start on login."
 echo "  Unit:  ${UNIT_NAME}"
 echo "  Repo:  ${REPO_ROOT}"
 echo "  Bun:   ${BUN_BIN}"
-echo "  Python: ${PYTHON_BIN}"
 echo "  Logs:  journalctl --user -u synthesis-console -f"
 echo ""
 echo "It should already be running. Try: xdg-open http://localhost:5555"

@@ -3,31 +3,23 @@ import type { ConsoleConfig } from "../config.js";
 import { layout } from "../views/layout.js";
 import { syncView } from "../views/sync.js";
 import { activeSources } from "../active-sources.js";
-import {
-  getSyncStatus,
-  refreshDetector,
-  runCheckpointNow,
-  setQuietAudio,
-  isQuietAudio,
-} from "../sync.js";
+import { RepoGuard } from "../sync.js";
 
 /**
- * Repo-sync routes — the console-as-command-center surface for
- * synthesis-repo-guard v2. Read endpoints render/serve the detector's report
- * files; the two POST mutations (refresh = read-only scan, checkpoint =
- * guarded commit+push) are explicit user actions, consistent with the
- * event-driven-mutation contract.
+ * Repo-sync routes over the v5 repo guard. Reads render the scan's report;
+ * the scan itself only reads repositories, so a stale report refreshes on
+ * request. The one setting the console changes is the quiet-audio flag, by
+ * explicit click.
  */
-export function syncRoutes(config: ConsoleConfig) {
+export function syncRoutes(config: ConsoleConfig, guard = new RepoGuard()) {
   const app = new Hono();
 
   app.get("/sync", (c) => {
-    const status = getSyncStatus();
     const active = activeSources(c, config);
     return c.html(
       layout({
         title: "Repo Sync",
-        content: syncView(status),
+        content: syncView(guard.status()),
         sources: config.sources,
         activeSourceNames: active.map((s) => s.name),
         currentPath: "/sync",
@@ -36,38 +28,28 @@ export function syncRoutes(config: ConsoleConfig) {
     );
   });
 
-  // Chip + page data. Side effect: kicks a background detector refresh when
-  // the report is stale (>5 min) so the chip stays ambient without any timer
-  // in this process doing mutation.
+  // Chip and page data. Starts a background scan when the report is stale.
   app.get("/api/sync-status", (c) => {
-    const s = getSyncStatus();
+    const s = guard.status();
     return c.json({
       ok: true,
       installed: s.installed,
       quietAudio: s.quietAudio,
       dirtyCount: s.dirtyCount,
-      alertCount: s.alertCount,
+      totalRepos: s.report?.total_repos ?? null,
       generatedAt: s.generatedAt,
       refreshing: s.refreshing,
+      error: s.error,
     });
   });
 
-  app.post("/api/sync/refresh", async (c) => {
-    const ok = await refreshDetector();
-    return c.json({ ok });
-  });
+  app.post("/api/sync/refresh", async (c) => c.json({ ok: await guard.refresh() }));
 
-  app.post("/api/sync/checkpoint", async (c) => {
-    const r = await runCheckpointNow();
-    return c.json(r);
-  });
-
-  app.get("/api/quiet-audio", (c) => c.json({ ok: true, quiet: isQuietAudio() }));
+  app.get("/api/quiet-audio", (c) => c.json({ ok: true, quiet: guard.isQuietAudio() }));
 
   app.post("/api/quiet-audio", (c) => {
-    const on = c.req.query("on") === "1";
-    const ok = setQuietAudio(on);
-    return c.json({ ok, quiet: isQuietAudio() });
+    const ok = guard.setQuietAudio(c.req.query("on") === "1");
+    return c.json({ ok, quiet: guard.isQuietAudio() });
   });
 
   return app;

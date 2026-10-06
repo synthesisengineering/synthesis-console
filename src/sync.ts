@@ -1,319 +1,207 @@
-import { finiteExecFile, FiniteCommandError } from "./finite-command.js";
-import {
-  existsSync,
-  readFileSync,
-  readdirSync,
-  unlinkSync,
-  writeFileSync,
-} from "node:fs";
+/**
+ * Repo sync: the v5 repo guard (synthesis-repo-guard) on this machine.
+ *
+ * `scripts/repo_sync_check.py` scans every repository under ~/workspaces and
+ * writes `~/.synthesis/repo-guard/last-report.json`:
+ *   {"generated_at", "host", "total_repos", "dirty_count",
+ *    "repos": [{"name", "path", "clean", "issues": [{"type", "detail", "files"?, "total"?, "count"?}]}]}
+ * It reads only. The console renders that report, refreshes it by running the
+ * scan with --quiet when the report is older than five minutes (a read, so
+ * safe to trigger from a page load), and toggles the `~/.synthesis/quiet-audio`
+ * mute flag the scan's alerts honor.
+ *
+ * Committing is not the console's job in v5: `synthesis handoff` commits the
+ * files inside a session's own claims. The console shows what is stranded and
+ * leaves it to the session that owns it.
+ */
+import { existsSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { synthesisPythonBin, synthesisPythonEnv } from "./python-runtime.js";
+import { resolveSkillScript, searchedLocations, skillSearch, type SkillSearch } from "./skill-resolution.js";
+import { describeFailure, runPythonScript, synthesisDir } from "./v5.js";
 
-/**
- * Repo-sync integration (synthesis-repo-guard v2).
- *
- * The console is the COMMAND CENTER for workspace sync state:
- *   - an always-on nav chip + /sync page render the detector's report files
- *   - a quiet-audio toggle controls the audible-alert mute flag
- *   - "Sync now" runs the checkpoint script on demand
- *   - every plan write the console performs fires a producer checkpoint so
- *     the file it just wrote is committed + pushed moments later
- *
- * Design contract (see synthesis-repo-guard SKILL.md): the console may POLL
- * (read-only) freely — mutation happens only at workflow events (a write we
- * just performed, or an explicit button click). Never on a background timer.
- *
- * All state paths honor SYNTHESIS_HOME (default ~/.synthesis), matching the
- * python scripts. If the skill isn't installed, everything degrades to no-ops
- * and the chip shows "sync n/a".
- */
+const SKILL = "synthesis-repo-guard";
+const SCRIPT = "repo_sync_check.py";
+export const SCAN_TIMEOUT_MS = 60_000;
+export const REFRESH_STALE_MS = 5 * 60 * 1000;
 
-const SYNTHESIS_HOME =
-  process.env.SYNTHESIS_HOME || join(homedir(), ".synthesis");
-const REPORT_DIR = join(SYNTHESIS_HOME, "repo-guard");
-const QUIET_FLAG = join(SYNTHESIS_HOME, "quiet-audio");
-
-const SKILL_NAME = "synthesis-repo-guard";
-
-/**
- * Where the skill can live. A skill reaches a machine by several routes and
- * the route changes over time — a native plugin (Claude Code or Codex), a
- * direct copy into a user-level skills directory, or a pinned checkout. A
- * single hardcoded path silently turns every sync feature off the day the
- * install route changes, which is exactly what a plugin migration does.
- *
- * Resolution is ordered most-explicit to most-legacy, and is re-run while
- * unresolved so installing the skill does not require a console restart.
- */
-function candidateSkillDirs(): string[] {
-  const home = homedir();
-  const dirs: string[] = [];
-
-  // 1. Explicit override always wins.
-  const override = process.env.SYNTHESIS_REPO_GUARD_DIR;
-  if (override) dirs.push(override);
-
-  // 2. Synthesis-owned stable location: survives client plugin churn.
-  dirs.push(join(SYNTHESIS_HOME, "skills", SKILL_NAME));
-
-  // 3. Native plugin caches, newest version first. Marketplace and plugin
-  //    names differ per adopter, so scan rather than hardcode them.
-  for (const client of [join(home, ".claude"), join(home, ".codex")]) {
-    dirs.push(...pluginCacheDirs(join(client, "plugins", "cache")));
-  }
-
-  // 4. Legacy direct copies into user-level skill directories.
-  dirs.push(join(home, ".claude", "skills", SKILL_NAME));
-  dirs.push(join(home, ".agents", "skills", SKILL_NAME));
-
-  return dirs;
+export interface RepoIssue {
+  type: string;
+  detail: string;
+  files?: string[];
+  total?: number;
+  count?: number;
 }
 
-/** `<cache>/<marketplace>/<plugin>/<version>/skills/<name>`, newest version first. */
-function pluginCacheDirs(cacheRoot: string): string[] {
-  const found: { version: string; dir: string }[] = [];
-  for (const marketplace of safeReaddir(cacheRoot)) {
-    const mpDir = join(cacheRoot, marketplace);
-    for (const plugin of safeReaddir(mpDir)) {
-      const pluginDir = join(mpDir, plugin);
-      for (const version of safeReaddir(pluginDir)) {
-        const dir = join(pluginDir, version, "skills", SKILL_NAME);
-        if (existsSync(dir)) found.push({ version, dir });
-      }
-    }
-  }
-  return found
-    .sort((a, b) => compareVersions(b.version, a.version))
-    .map((f) => f.dir);
+export interface RepoState {
+  name: string;
+  path: string;
+  clean: boolean;
+  issues: RepoIssue[];
 }
 
-function safeReaddir(dir: string): string[] {
-  try {
-    return readdirSync(dir, { withFileTypes: true })
-      .filter((e) => e.isDirectory() && !e.name.startsWith("."))
-      .map((e) => e.name);
-  } catch {
-    return [];
-  }
-}
-
-/** Numeric-segment comparison; non-numeric versions sort below numeric ones. */
-function compareVersions(a: string, b: string): number {
-  const pa = a.split(/[.\-+]/);
-  const pb = b.split(/[.\-+]/);
-  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
-    // Entirely-digits segments only: leading-digit content hashes are
-    // not versions and must never outrank a real release.
-    const l = pa[i] ?? "";
-    const r = pb[i] ?? "";
-    const lNum = /^\d+$/.test(l);
-    const rNum = /^\d+$/.test(r);
-    if (!lNum && !rNum) continue;
-    if (!lNum) return -1;
-    if (!rNum) return 1;
-    if (Number(l) !== Number(r)) return Number(l) - Number(r);
-  }
-  return 0;
-}
-
-let resolvedSkillDir: string | null = null;
-
-/** The resolved skill directory, or null when the skill is not installed. */
-export function skillDir(): string | null {
-  if (resolvedSkillDir && existsSync(join(resolvedSkillDir, "repo_sync_check.py"))) {
-    return resolvedSkillDir;
-  }
-  resolvedSkillDir = null;
-  for (const dir of candidateSkillDirs()) {
-    if (
-      existsSync(join(dir, "repo_sync_check.py")) &&
-      existsSync(join(dir, "checkpoint_sync.py"))
-    ) {
-      resolvedSkillDir = dir;
-      break;
-    }
-  }
-  return resolvedSkillDir;
-}
-
-/** Locations searched, for the empty state to report when nothing resolved. */
-export function searchedSkillDirs(): string[] {
-  return candidateSkillDirs();
-}
-
-function checkScript(): string | null {
-  const dir = skillDir();
-  return dir ? join(dir, "repo_sync_check.py") : null;
-}
-
-function checkpointScript(): string | null {
-  const dir = skillDir();
-  return dir ? join(dir, "checkpoint_sync.py") : null;
-}
-
-// Refresh the detector at most this often when status is requested (the chip
-// polls every 5 min; a fresh report is written by every refresh).
-const REFRESH_STALE_MS = 5 * 60 * 1000;
-
-export function guardInstalled(): boolean {
-  return skillDir() !== null;
-}
-
-export function isQuietAudio(): boolean {
-  return existsSync(QUIET_FLAG);
-}
-
-export function setQuietAudio(on: boolean): boolean {
-  try {
-    if (on) {
-      writeFileSync(
-        QUIET_FLAG,
-        `muted via synthesis-console ${new Date().toISOString()}\n`,
-        "utf-8"
-      );
-    } else if (existsSync(QUIET_FLAG)) {
-      unlinkSync(QUIET_FLAG);
-    }
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function readJson(path: string): any | null {
-  try {
-    if (!existsSync(path)) return null;
-    return JSON.parse(readFileSync(path, "utf-8"));
-  } catch {
-    return null;
-  }
+export interface RepoReport {
+  generated_at: string;
+  host: string;
+  total_repos: number;
+  dirty_count: number;
+  repos: RepoState[];
 }
 
 export interface SyncStatus {
   installed: boolean;
+  script: string | null;
+  searched: string[];
   quietAudio: boolean;
-  report: any | null; // last-report.json payload (detector)
-  checkpoint: any | null; // checkpoint-state.json payload (remediator)
+  report: RepoReport | null;
+  /** Why the report file could not be used, or why the last scan failed. */
+  error: string | null;
   dirtyCount: number;
-  alertCount: number;
   generatedAt: string | null;
   refreshing: boolean;
 }
 
-let refreshInflight = false;
-let lastRefreshStartedAt = 0;
-
-/** Exported for testing: every failure mode resolves, none rejects. */
-export async function runScript(
-  script: string, args: string[], timeoutMs: number
-): Promise<{code:number;stdout:string;stderr:string;cleanupComplete:boolean;helperFailure:boolean}> {
-  let executable:string;
-  try { executable=await synthesisPythonBin(); }
-  catch(error){return {code:1,stdout:'',stderr:error instanceof Error?error.message:String(error),
-    cleanupComplete:!(error instanceof FiniteCommandError)||error.cleanupComplete,helperFailure:true};}
-  return new Promise(resolve=>finiteExecFile(executable,[script,...args],
-    {env:synthesisPythonEnv(),timeout:timeoutMs,maxBuffer:8*1024*1024},
-    (error,stdout,stderr)=>resolve({code:error?(typeof error.code==='number'?error.code:1):0,
-      stdout,stderr:stderr||error?.message||'',cleanupComplete:error?.cleanupComplete!==false,
-      helperFailure:Boolean(error&&error.result.kind!=='exit')})));
+export interface SyncPaths {
+  report: string;
+  quietFlag: string;
 }
 
-/** Run the read-only detector now (writes fresh report files). */
-export async function refreshDetector(): Promise<boolean> {
-  const script = checkScript();
-  if (!script || refreshInflight) return false;
-  refreshInflight = true;
-  lastRefreshStartedAt = Date.now();
-  let cleanupComplete=true;
+export function syncPaths(home = homedir()): SyncPaths {
+  const dir = synthesisDir(home);
+  return { report: join(dir, "repo-guard", "last-report.json"), quietFlag: join(dir, "quiet-audio") };
+}
+
+/** Validate the scan's report. Throws with a plain reason. */
+export function parseRepoReport(text: string): RepoReport {
+  let value: unknown;
   try {
-    // --quiet: exit code + report files only. No audio flags — the console
-    // renders state; it never triggers audible alerts.
-    const r = await runScript(script, ["--quiet"], 60_000);
-    cleanupComplete=r.cleanupComplete!==false;
-    return !r.helperFailure && (r.code === 0 || r.code === 1);
-  } finally {
-    if(cleanupComplete)refreshInflight = false;
+    value = JSON.parse(text);
+  } catch {
+    throw new Error("The repo-guard report is not complete JSON; the next scan rewrites it.");
   }
-}
-
-/**
- * Current status from the report/state files. If the report is stale (or
- * missing) and the guard is installed, kick a background refresh — the chip's
- * next poll picks up the fresh data. Read-only from the caller's perspective.
- */
-export function getSyncStatus(): SyncStatus {
-  const report = readJson(join(REPORT_DIR, "last-report.json"));
-  const checkpoint = readJson(join(REPORT_DIR, "checkpoint-state.json"));
-  const installed = guardInstalled();
-
-  const generatedAt: string | null = report?.generated_at ?? null;
-  const ageMs = generatedAt ? Date.now() - Date.parse(generatedAt) : Infinity;
+  const data = value as Partial<RepoReport> | null;
   if (
-    installed &&
-    !refreshInflight &&
-    ageMs > REFRESH_STALE_MS &&
-    Date.now() - lastRefreshStartedAt > REFRESH_STALE_MS
+    !data ||
+    typeof data.generated_at !== "string" ||
+    typeof data.dirty_count !== "number" ||
+    typeof data.total_repos !== "number" ||
+    !Array.isArray(data.repos)
   ) {
-    // Fire-and-forget: a rejection here is an unhandled rejection, which
-    // kills the process. runScript never rejects, but this guards the
-    // call shape itself against future async failures.
-    void refreshDetector().catch(() => {});
+    throw new Error("The repo-guard report lacks generated_at, total_repos, dirty_count or repos.");
   }
-
-  const alerts: any[] = checkpoint?.alerts ?? [];
+  const repos = data.repos.map((repo) => {
+    if (!repo || typeof repo.name !== "string" || typeof repo.path !== "string" || typeof repo.clean !== "boolean" || !Array.isArray(repo.issues)) {
+      throw new Error("The repo-guard report has a repository without name, path, clean and issues.");
+    }
+    const issues = repo.issues.map((issue) => {
+      if (!issue || typeof issue.type !== "string" || typeof issue.detail !== "string") {
+        throw new Error("The repo-guard report has an issue without type and detail.");
+      }
+      return {
+        type: issue.type,
+        detail: issue.detail,
+        ...(Array.isArray(issue.files) ? { files: issue.files.map(String) } : {}),
+        ...(typeof issue.total === "number" ? { total: issue.total } : {}),
+        ...(typeof issue.count === "number" ? { count: issue.count } : {}),
+      };
+    });
+    return { name: repo.name, path: repo.path, clean: repo.clean, issues };
+  });
   return {
-    installed,
-    quietAudio: isQuietAudio(),
-    report,
-    checkpoint,
-    dirtyCount: report?.dirty_count ?? 0,
-    alertCount: alerts.length,
-    generatedAt,
-    refreshing: refreshInflight,
+    generated_at: data.generated_at,
+    host: typeof data.host === "string" ? data.host : "",
+    total_repos: data.total_repos,
+    dirty_count: data.dirty_count,
+    repos,
   };
 }
 
-/** Manual "Sync now": checkpoint sweep with throttle bypassed (quiescence kept). */
-export async function runCheckpointNow(): Promise<{
-  ok: boolean;
-  results: any[];
-  error?: string;
-}> {
-  const script = checkpointScript();
-  if (!script) {
-    return { ok: false, results: [], error: "repo-guard skill not installed" };
-  }
-  const r = await runScript(script, ["--no-throttle", "--json"], 180_000);
-  let results: any[] = [];
-  try {
-    results = JSON.parse(r.stdout);
-  } catch {
-    /* state file still has the outcome */
-  }
-  await refreshDetector();
-  return { ok: !r.helperFailure && (r.code === 0 || r.code === 1), results };
-}
+/** The repo guard: report reads, the read-only scan, and the mute flag. */
+export class RepoGuard {
+  private refreshInflight: Promise<boolean> | null = null;
+  private lastRefreshStartedAt = 0;
+  private lastScanError: string | null = null;
 
-/**
- * Producer checkpoint: the console just wrote `filePath` (a plan marker,
- * draft edit, decision, task toggle). Commit + push exactly that file via the
- * shared checkpoint script. Fire-and-forget — the write path must not block
- * on git/network; outcomes land in checkpoint-state.json for the tile.
- */
-export function fireProducerCheckpoint(filePath: string): void {
-  const script = checkpointScript();
-  if (!script) return;
-  try {
-    finiteExecFile(
-      synthesisPythonBin(),
-      [script, "--repo", filePath, "--now", "--quiet"],
-      { env: synthesisPythonEnv(), timeout: 120_000 },
-      () => {
-        /* outcome recorded in checkpoint-state.json */
+  constructor(
+    private readonly paths: SyncPaths = syncPaths(),
+    private readonly search: () => SkillSearch = () => skillSearch(),
+    private readonly env: NodeJS.ProcessEnv = process.env,
+    private readonly now: () => number = Date.now
+  ) {}
+
+  script(): string | null {
+    return resolveSkillScript(SKILL, SCRIPT, this.search());
+  }
+
+  isQuietAudio(): boolean {
+    return existsSync(this.paths.quietFlag);
+  }
+
+  setQuietAudio(on: boolean): boolean {
+    try {
+      if (on) writeFileSync(this.paths.quietFlag, `muted via synthesis-console ${new Date(this.now()).toISOString()}\n`, "utf-8");
+      else if (existsSync(this.paths.quietFlag)) unlinkSync(this.paths.quietFlag);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  get refreshing(): boolean {
+    return this.refreshInflight !== null;
+  }
+
+  /** Run the read-only scan now; it rewrites the report. Concurrent callers share one scan. */
+  refresh(): Promise<boolean> {
+    const script = this.script();
+    if (!script) return Promise.resolve(false);
+    if (this.refreshInflight) return this.refreshInflight;
+    this.lastRefreshStartedAt = this.now();
+    this.refreshInflight = runPythonScript(script, ["--quiet"], {
+      timeoutMs: SCAN_TIMEOUT_MS,
+      maxOutputBytes: 1024 * 1024,
+      env: this.env,
+    })
+      .then((result) => {
+        // Exit 0: all clean; 1: something needs attention. Both wrote a report.
+        const ok = result.kind === "success" || (result.kind === "exit" && result.code === 1);
+        this.lastScanError = ok ? null : describeFailure(result, "The repo-guard scan", SCAN_TIMEOUT_MS);
+        return ok;
+      })
+      .finally(() => {
+        this.refreshInflight = null;
+      });
+    return this.refreshInflight;
+  }
+
+  /** The report as it is now; starts a background scan when it is older than five minutes. */
+  status(): SyncStatus {
+    const search = this.search();
+    const script = resolveSkillScript(SKILL, SCRIPT, search);
+    let report: RepoReport | null = null;
+    let error: string | null = this.lastScanError;
+    if (existsSync(this.paths.report)) {
+      try {
+        report = parseRepoReport(readFileSync(this.paths.report, "utf-8"));
+      } catch (problem) {
+        error = (problem as Error).message;
       }
-    );
-  } catch {
-    /* never let a checkpoint failure break a save */
+    }
+    const generated = report ? Date.parse(report.generated_at) : NaN;
+    const age = Number.isNaN(generated) ? Infinity : this.now() - generated;
+    if (script && !this.refreshInflight && age > REFRESH_STALE_MS && this.now() - this.lastRefreshStartedAt > REFRESH_STALE_MS) {
+      void this.refresh();
+    }
+    return {
+      installed: script !== null,
+      script,
+      searched: searchedLocations(search),
+      quietAudio: this.isQuietAudio(),
+      report,
+      error,
+      dirtyCount: report?.dirty_count ?? 0,
+      generatedAt: report?.generated_at ?? null,
+      refreshing: this.refreshing,
+    };
   }
 }

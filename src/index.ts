@@ -10,12 +10,11 @@ import { peopleRoutes } from "./routes/people.js";
 import { ledgerRoutes } from "./routes/ledger.js";
 import { syncRoutes } from "./routes/sync.js";
 import { contextIntegrityRoutes } from "./routes/context-integrity.js";
-import { agentConformanceRoutes } from "./routes/agent-conformance.js";
+import { conformanceRoutes } from "./routes/conformance.js";
 import { autopilotRoutes } from "./routes/autopilot.js";
 import { layout } from "./views/layout.js";
 import { activeSources } from "./active-sources.js";
 import pkg from "../package.json";
-import { Supervisor } from "./autopilot-supervisor.js";
 
 const args = process.argv.slice(2);
 const isDemoFlag = args.includes("--demo");
@@ -30,7 +29,6 @@ if (config.sources.length === 0) {
 }
 
 const app = new Hono();
-const supervisor = new Supervisor({demo:config.demoMode});
 
 // Disable browser caching for all dynamic responses.
 //
@@ -51,12 +49,6 @@ app.use("*", async (c, next) => {
   c.res.headers.set("Expires", "0");
 });
 
-// Register after the dynamic freshness middleware. This endpoint contains
-// counts and health only; it cannot grant or deliver work.
-if (!config.demoMode) {
-  app.get("/api/autopilot/supervision-health", c=>c.json(supervisor.status()));
-}
-
 app.use("/style.css", serveStatic({ root: "./public" }));
 app.use("/favicon.svg", serveStatic({ root: "./public" }));
 app.use("/vendor/pico-2.1.1.min.css", serveStatic({ root: "./public" }));
@@ -71,11 +63,11 @@ app.route("/", planRoutes(config));
 app.route("/", peopleRoutes(config));
 app.route("/", ledgerRoutes(config));
 // A sample-data process must not expose or mutate the host's machine-wide
-// diagnostics, checkpoint state or quiet-audio preference through direct URLs.
+// diagnostics, repository state or quiet-audio preference through direct URLs.
 if (!config.demoMode) {
   app.route("/", syncRoutes(config));
   app.route("/", contextIntegrityRoutes(config));
-  app.route("/", agentConformanceRoutes(config));
+  app.route("/", conformanceRoutes(config));
 }
 
 app.notFound((c) => {
@@ -122,12 +114,15 @@ const server = Bun.serve({
   port,
   fetch: app.fetch,
 });
-supervisor.start();
-let stopping=false;
-for(const [signal,code] of [["SIGINT",130],["SIGTERM",143],["SIGHUP",129]] as const)process.on(signal,()=>{
-  if(stopping)return;stopping=true;
-  void supervisor.shutdown().finally(()=>{server.stop(true);process.exit(code);});
-});
+let stopping = false;
+for (const [signal, code] of [["SIGINT", 130], ["SIGTERM", 143], ["SIGHUP", 129]] as const) {
+  process.on(signal, () => {
+    if (stopping) return;
+    stopping = true;
+    server.stop(true);
+    process.exit(code);
+  });
+}
 
 if (port !== preferredPort) {
   console.log(`  Port ${preferredPort} is in use, using ${port} instead.\n`);

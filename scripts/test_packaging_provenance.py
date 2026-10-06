@@ -46,22 +46,7 @@ def tagged(source):
     git(source, 'tag', 'v' + version)
 
 
-@pytest.fixture(scope='module')
-def core(tmp_path_factory):
-    base = tmp_path_factory.mktemp('console-provenance-core')
-    configured = os.environ.get('SYNTHESIS_CORE_SOURCE')
-    source = Path(configured) if configured else ROOT.parent / 'synthesis-skills-unified-installation'
-    spec = importlib.util.spec_from_file_location('console_core_builder', source / 'packages/build.py')
-    helper = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(helper)
-    fixture = base / 'nongit'; fixture.mkdir()
-    for relative in ('.claude-plugin/plugin.json', '.codex-plugin/plugin.json', 'onboard.sh', 'LICENSE-APACHE'):
-        target = fixture / relative; target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(source / relative, target)
-    return helper.build_package(fixture, base / 'core', commit='1' * 40)
-
-
-def test_release_archive_uses_tracked_tree_and_locked_dependencies(tmp_path, core):
+def test_release_archive_uses_tracked_tree_and_locked_dependencies(tmp_path):
     source = candidate(tmp_path / 'source'); tagged(source)
     (source / 'public/ignored-release-note.log').write_text('ignored source marker')
     shutil.copytree(ROOT / 'node_modules', source / 'node_modules', symlinks=True)
@@ -72,7 +57,7 @@ def test_release_archive_uses_tracked_tree_and_locked_dependencies(tmp_path, cor
     assert git(source, 'status', '--porcelain') == ''
     builder = module(); builder.ROOT = source
     output = tmp_path / 'output'
-    result = builder.build(output, core)
+    result = builder.build(output)
     with tarfile.open(output / result['archive']['file']) as archive:
         names = archive.getnames()
         assert not any('ignored-release-note' in name for name in names)
@@ -84,56 +69,56 @@ def test_release_archive_uses_tracked_tree_and_locked_dependencies(tmp_path, cor
     assert result['dependencies']['lockfile_sha256'] == builder.digest(source / 'bun.lock')
 
 
-def test_real_release_refuses_dirty_and_untagged_sources(tmp_path, core):
+def test_real_release_refuses_dirty_and_untagged_sources(tmp_path):
     source = candidate(tmp_path / 'source'); tagged(source)
     builder = module(); builder.ROOT = source
     (source / 'public/style.css').write_text('changed tracked source')
     with pytest.raises(ValueError, match='clean'):
-        builder.build(tmp_path / 'dirty', core)
+        builder.build(tmp_path / 'dirty')
     git(source, 'checkout', '--', 'public/style.css')
     git(source, 'tag', '-d', 'v' + json.loads((source / 'package.json').read_text())['version'])
     with pytest.raises(ValueError, match='exact.*tag'):
-        builder.build(tmp_path / 'untagged', core)
+        builder.build(tmp_path / 'untagged')
 
 
-def test_fixture_entry_is_explicit_and_cannot_claim_release(tmp_path, core):
+def test_fixture_entry_is_explicit_and_cannot_claim_release(tmp_path):
     source = candidate(tmp_path / 'source')
     builder = module()
-    result = builder.build_fixture(tmp_path / 'output', core, source=source)
-    again = builder.build_fixture(tmp_path / 'repeat', core, source=source)
+    result = builder.build_fixture(tmp_path / 'output', source=source)
+    again = builder.build_fixture(tmp_path / 'repeat', source=source)
     assert result['archive']['sha256'] == again['archive']['sha256']
     assert result['source']['kind'] == 'fixture'
     assert 'commit' not in result['source'] and 'tag' not in result['source']
     tagged(source)
     with pytest.raises(ValueError, match='nongit'):
-        builder.build_fixture(tmp_path / 'refused', core, source=source)
+        builder.build_fixture(tmp_path / 'refused', source=source)
 
 
-def test_changed_dependency_manifest_cannot_bypass_frozen_lock(tmp_path, core):
+def test_changed_dependency_manifest_cannot_bypass_frozen_lock(tmp_path):
     source = candidate(tmp_path / 'source')
     metadata = json.loads((source / 'package.json').read_text())
     metadata['dependencies']['hono'] = '4.0.0'
     (source / 'package.json').write_text(json.dumps(metadata))
     with pytest.raises(subprocess.CalledProcessError):
-        module().build_fixture(tmp_path / 'output', core, source=source)
+        module().build_fixture(tmp_path / 'output', source=source)
     assert not (tmp_path / 'output').exists()
 
 
-def test_tracked_symbolic_link_has_no_release_authority(tmp_path, core):
+def test_tracked_symbolic_link_has_no_release_authority(tmp_path):
     source = candidate(tmp_path / 'source')
     (source / 'public/linked.css').symlink_to('style.css')
     tagged(source)
     with pytest.raises(ValueError, match='unsupported tracked object'):
-        module().build(tmp_path / 'output', core, source=source)
+        module().build(tmp_path / 'output', source=source)
     assert not (tmp_path / 'output').exists()
 
 
-def test_real_release_cli_and_packaged_demo(tmp_path, core):
+def test_real_release_cli_and_packaged_demo(tmp_path):
     import sys
     source = candidate(tmp_path / 'source'); tagged(source)
     output = tmp_path / 'release'
     command = [sys.executable, '-B', str(ROOT / 'scripts/build_distribution.py'), '--repo-root', str(source),
-               '--output', str(output), '--core-package', str(core)]
+               '--output', str(output)]
     completed = subprocess.run(command, capture_output=True, text=True)
     assert completed.returncode == 0, completed.stdout + completed.stderr
     record = json.loads((output / 'release.json').read_text())

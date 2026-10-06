@@ -54,30 +54,18 @@ def dependency_licenses(source, package, metadata):
     (package / "THIRD-PARTY-NOTICES.md").write_text(
         "# Bundled runtime dependencies\n\n"
         + "\n".join(sorted(notices))
-        + "\n\nPico CSS 2.1.1 notices are in public/vendor.\nPyYAML 6.0.3 (MIT) source and license are in packages/python.\n"
+        + "\n\nPico CSS 2.1.1 notices are in public/vendor.\n"
     )
 
 
-def _build(source, output, core, provenance, environment):
-    output, core = Path(output), Path(core)
+def _build(source, output, provenance, environment):
+    output = Path(output)
     if output.exists() or output.is_symlink():
         raise ValueError("output must be a new directory")
     metadata = json.loads((source / "package.json").read_text())
     version = metadata["version"]
     if not re.fullmatch(r"\d+\.\d+\.\d+", version):
         raise ValueError("version must be an exact release")
-    core_meta = json.loads((core / "lib/release.json").read_text())
-    if not re.fullmatch(
-        r"[0-9a-f]{40}", core_meta.get("commit", "")
-    ) or not re.fullmatch(r"\d+\.\d+\.\d+", core_meta.get("version", "")):
-        raise ValueError("core package must identify an exact released source commit")
-    if digest(core / "lib/onboard.sh") != core_meta.get("bootstrap_sha256"):
-        raise ValueError("core bootstrap checksum mismatch")
-    if not (core / "bin/synthesis").is_file():
-        raise ValueError("core launcher is missing")
-    for p in core.rglob("*"):
-        if p.is_symlink() or not (p.is_file() or p.is_dir()):
-            raise ValueError("unsupported core filesystem object")
     package = output / "npm"
     package.mkdir(parents=True)
     for directory in ("bin", "public", "demo"):
@@ -86,8 +74,6 @@ def _build(source, output, core, provenance, environment):
     for filename in (
         "console-cli.ts",
         "launch.sh",
-        "python-runtime.sh",
-        "python-runtime.py",
         "service-ownership.ts",
         "install-autostart-macos.sh",
         "install-autostart-linux.sh",
@@ -97,28 +83,7 @@ def _build(source, output, core, provenance, environment):
         shutil.copy2(source / "scripts" / filename, package / "scripts" / filename)
     for name in ("LICENSE", "README.md", "console.yaml.example"):
         shutil.copy2(source / name, package / name)
-    import importlib.util
-
-    specification = importlib.util.spec_from_file_location(
-        "console_python_payload", source / "scripts/python-runtime.py"
-    )
-    helper = importlib.util.module_from_spec(specification)
-    specification.loader.exec_module(helper)
-    payload_root, python_dependency = helper.payload()
-    shutil.copytree(payload_root, package / "packages/python")
     dependency_licenses(source, package, metadata)
-    shutil.copytree(core, package / "synthesis-core")
-    inventory = {
-        p.relative_to(core).as_posix(): {
-            "sha256": digest(p),
-            "mode": 0o755 if p.stat().st_mode & 0o111 else 0o644,
-        }
-        for p in sorted(core.rglob("*"))
-        if p.is_file()
-    }
-    (package / "core-files.json").write_text(
-        json.dumps(inventory, sort_keys=True, indent=2) + "\n"
-    )
     published = {
         k: metadata[k]
         for k in (
@@ -138,12 +103,9 @@ def _build(source, output, core, provenance, environment):
         files=[
             "bin",
             "scripts",
-            "packages/python",
             "app",
             "public",
             "demo",
-            "synthesis-core",
-            "core-files.json",
             "console.yaml.example",
             "README.md",
             "LICENSE",
@@ -168,20 +130,6 @@ def _build(source, output, core, provenance, environment):
         env=environment,
         check=True,
     )
-    # The CLI invokes this module without a source tree or node_modules present.
-    subprocess.run(
-        [
-            "bun",
-            "build",
-            "src/autopilot-supervisor.ts",
-            "--target=bun",
-            "--outfile",
-            str(package / "app/autopilot-supervisor.js"),
-        ],
-        cwd=source,
-        env=environment,
-        check=True,
-    )
     subprocess.run(
         [
             "bun",
@@ -190,19 +138,6 @@ def _build(source, output, core, provenance, environment):
             "--target=bun",
             "--outfile",
             str(package / "app/platform-ownership.js"),
-        ],
-        cwd=source,
-        env=environment,
-        check=True,
-    )
-    subprocess.run(
-        [
-            "bun",
-            "build",
-            "src/finite-command.ts",
-            "--target=bun",
-            "--outfile",
-            str(package / "app/finite-command.js"),
         ],
         cwd=source,
         env=environment,
@@ -262,12 +197,10 @@ def _build(source, output, core, provenance, environment):
   license "Apache-2.0"
   depends_on "oven-sh/bun/bun"
   depends_on "git"
-  depends_on "python@3.12"
   def install
     libexec.install Dir["*"]
     (bin/"synthesis-console").write_env_script libexec/"bin/synthesis-console",
-      PATH: "#{Formula["oven-sh/bun/bun"].opt_bin}:$PATH",
-      SYNTHESIS_BOOTSTRAP_PYTHON: Formula["python@3.12"].opt_bin/"python3.12"
+      PATH: "#{Formula["oven-sh/bun/bun"].opt_bin}:$PATH"
   end
   test do
     assert_match "%s", shell_output("#{bin}/synthesis-console --version")
@@ -280,17 +213,8 @@ end
         "schema_version": 1,
         "version": version,
         "npm_package": "@synthesiswork/console",
-        "core_release": core_meta,
         "archive": {"file": archive.name, "url": url, "sha256": checksum},
         "installer_sha256": digest(output / "install.sh"),
-        "python_dependency": {
-            "name": python_dependency["name"],
-            "version": python_dependency["version"],
-            "source_url": python_dependency["source_url"],
-            "source_sha256": python_dependency["source_sha256"],
-            "manifest_sha256": helper.PAYLOAD_SHA256,
-            "acquisition": "bundled-pure-python-offline-owned-venv",
-        },
         "bun_version": subprocess.check_output(
             ["bun", "--version"], env=environment, text=True
         ).strip(),
@@ -446,12 +370,8 @@ def _snapshot_fixture(source, destination):
     return {"kind": "fixture", "release_authority": False}
 
 
-def _execute_build(source, output, core, fixture):
-    source, output, core = (
-        Path(source).resolve(),
-        Path(output).absolute(),
-        Path(core).resolve(),
-    )
+def _execute_build(source, output, fixture):
+    source, output = Path(source).resolve(), Path(output).absolute()
     if (
         output.exists()
         or output.is_symlink()
@@ -516,35 +436,28 @@ def _execute_build(source, output, core, fixture):
             for name, evidence in inventory.items()
         ):
             raise ValueError("locked dependency install changed tracked source")
-        result = _build(snapshot, output, core, provenance, environment)
+        result = _build(snapshot, output, provenance, environment)
         if digest(lock) != before:
             raise ValueError("build changed tracked dependency lock")
         return result
 
 
-def build(output, core, *, source=None):
+def build(output, *, source=None):
     """Release API: clean exact-tag source, isolated frozen dependencies."""
-    return _execute_build(
-        ROOT if source is None else source, output, core, fixture=False
-    )
+    return _execute_build(ROOT if source is None else source, output, fixture=False)
 
 
-def build_fixture(output, core, *, source):
+def build_fixture(output, *, source):
     """Explicit test API; nongit input and no release provenance claims."""
-    return _execute_build(source, output, core, fixture=True)
+    return _execute_build(source, output, fixture=True)
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repo-root", default=ROOT, type=Path)
     parser.add_argument("--output", required=True, type=Path)
-    parser.add_argument("--core-package", required=True, type=Path)
     args = parser.parse_args()
-    print(
-        json.dumps(
-            build(args.output, args.core_package, source=args.repo_root), indent=2
-        )
-    )
+    print(json.dumps(build(args.output, source=args.repo_root), indent=2))
 
 
 if __name__ == "__main__":

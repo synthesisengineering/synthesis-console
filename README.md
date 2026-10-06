@@ -1,7 +1,5 @@
 # Synthesis Console
 
-Version 1.5.1 distinguishes operator-reader and runtime-verification failures, including timeouts, output limits and process termination. Existing execution and authority limits remain in force.
-
 Local-first, open-source tooling for synthesis engineering. Renders your project management YAML and markdown files as browsable, searchable pages in a web browser.
 
 **Website:** [ragenie.ai/synthesis-console](https://ragenie.ai/synthesis-console/)
@@ -18,59 +16,34 @@ Synthesis Console renders those files as a browsable console. Project list with 
 
 Synthesis engineering is a discipline for structured human-AI collaboration — like agile or Scrum, but for AI-native workflows. This console is one open-source implementation of the tooling layer. Others can build their own.
 
-## What v1.3 adds — cross-agent conformance
+## Synthesis v5 views
 
-v1.3 adds an **Agent Conformance** page at `/conformance`. It renders the
-structured evidence produced by `synthesis-agent-conformance` across five
-separate planes: source, deployment, runtime, live behavior, and product
-surface. A passing source test cannot mask an untrusted hook or a stale live
-receipt. The nav chip is green only for a fresh overall PASS, amber for stale
-or incomplete evidence, and red for required failures.
+Four views read the synthesis v5 system on this machine. v5 is installed by the
+[synthesis-skills](https://github.com/synthesisengineering/synthesis-skills)
+plugin in each harness (Claude Code, Codex, Muse); its runtime lives in
+`SYNTHESIS_HOME` (default `~/.synthesis/v5`). Skill scripts resolve from the
+runtime's `current/skills` and then from each harness's plugin cache, newest
+version first, counting only plugin versions that carry the v5 runtime package.
+v5 skill scripts are standard-library Python; the Console runs them with
+`python3`, or `SYNTHESIS_PYTHON_BIN` when set, in isolated mode and without
+writing bytecode into plugin folders. None of these views changes synthesis
+state, and none is reachable in demo mode.
 
-The page reads `~/.synthesis/agent-conformance/last-report.json`; **Audit now**
-invokes the installed conformance program explicitly and atomically replaces
-that cache. The checker itself may resolve from a native plugin, but every
-audit is anchored to a Git-backed `synthesis-skills` source checkout discovered
-beside the console or beneath `~/workspaces/`; set
-`SYNTHESIS_CONFORMANCE_SOURCE_ROOT` when the checkout lives elsewhere. An
-invalid explicit source path fails closed. It also displays the context-doctor
-cache age so the two parts of the durable cross-client handoff can be inspected
-together. The console does not reinterpret checker results or mutate them on a
-background timer.
-Public-plugin conformance is the default. Set
-`SYNTHESIS_PRIVATE_CONTROL_PLANE=1` only on installations that also deploy the
-private control plane and its live-receipt evidence. In that mode, cached
-public-only evidence is rejected instead of being displayed as a private-mode
-PASS.
+| View | Source | Refresh |
+|---|---|---|
+| **Conformance** (`/conformance`, `/api/conformance-status`) | `synthesis doctor --json`: each check's status (ok, warn, fail, info) and detail, the healthy flag, and the doctor's own timing | Run on demand, bounded at 30 s, kept for a minute; **Run again** starts a fresh run |
+| **Context** (`/context`, `/api/context-status`) | synthesis-context-lifecycle's `context_doctor.py --root <knowledge root> --json`, once per active source whose projects live in a `projects/` folder: defects, warnings, coverage and every finding | Run on demand per source, bounded at 60 s, kept for a minute; **Run again** starts fresh runs |
+| **Autopilot** (`/autopilot`, `/api/autopilot`) | v5 run records in `$SYNTHESIS_HOME/state/autopilot/<session>.json` and the plan files they name: status, owner, next item, progress, open blockers and questions for the principal | Read on every request; `/autopilot/run/<session>` shows one run with its checklists and plan |
+| **Sync** (`/sync`, `/api/sync-status`) | synthesis-repo-guard's `repo_sync_check.py` report at `~/.synthesis/repo-guard/last-report.json`, plus the `~/.synthesis/quiet-audio` mute flag | A report older than five minutes starts one read-only scan; **Scan now** runs it on demand |
 
-Persist that mode when installing the login service:
+Each view has a nav chip: green when healthy, amber or red when something needs a
+look, gray when the program is not installed. The source picker bounds the Context
+and Autopilot views: an inactive source is not audited, and a run in an inactive
+source is counted but not shown.
 
-```bash
-SYNTHESIS_PRIVATE_CONTROL_PLANE=1 synthesis-console autostart install
-```
-
-The macOS LaunchAgent and Linux systemd installer include the opt-in only when
-the value is exactly `1`; ordinary public installations remain unchanged.
-Console setup and autostart installation prepare a private Python runtime with the
-bundled, MIT-licensed pure Python PyYAML 6.0.3 dependency. No global pip install,
-compiler, or dependency download is needed. The runtime lives under
-`${XDG_DATA_HOME:-~/.local/share}/synthesis-console/python-runtime`; its release
-manifest, interpreter, configuration, files, and permissions are verified before
-Python-backed controls use it. Modified or foreign runtime files are preserved and
-reported, rather than overwritten. Explicit setup with a different base interpreter
-builds a verified new generation and retains the previous generation and receipts.
-
-Set `SYNTHESIS_BOOTSTRAP_PYTHON` to select an installed Python 3.9+ base interpreter.
-The service installer persists the resulting exact `SYNTHESIS_PYTHON_BIN`, base
-interpreter, and data path. Foreground controls resolve that same verified runtime;
-an unrelated `SYNTHESIS_PYTHON_BIN` cannot replace it. Services retain their own
-ownership checks, and refuse unknown or edited service files before preparing a
-runtime. Generated LaunchAgent and systemd values use their respective formats.
-
-`setup --no-dormant-core` still prepares Console's own Python dependency, while
-skipping shared core staging. Package installation, help, and ordinary dashboard
-startup do not provision Python, register services, or activate shared hooks.
-
+The Sync view only reads. In v5 a session commits the files inside its own claims
+with `synthesis handoff`; the Console does not commit or push, including after its
+own plan edits.
 
 ## Screenshots
 
@@ -197,40 +170,11 @@ Run `synthesis-console demo` to view bundled sample data, or
 any directory. Open the loopback address printed by the process, normally
 `http://localhost:5555`. Stop the foreground process with Ctrl-C.
 
-`setup` is a separate choice:
-
-```sh
-synthesis-console setup                    # Stage a verified, inert core bundle
-synthesis-console setup --no-dormant-core  # Decline optional staging
-```
-
-Default setup uses the package's exact Synthesis release and commit. It stages
-core files outside agent discovery for later explicit ecosystem activation.
-It does not activate hooks or services. The opt-out response acquires no source
-and writes no new core state; previously staged payloads and receipts stay
-untouched. Ordinary Console commands never stage core files.
-
-Use the packaged core explicitly when you choose to activate or inspect it:
-
-```sh
-synthesis-console synthesis status --json
-synthesis-console synthesis activate --profile full
-synthesis-console synthesis deactivate
-```
-
-This bridge supports only `activate`, `deactivate`, `status`, `doctor`, `repair`,
-and `update`, with remaining arguments forwarded unchanged. It verifies the
-bundled core before execution and preserves its exit status and termination
-signals. It does not require a global `synthesis` executable or a Console
-reinstall. Activation follows the core's permission and client-restart checks;
-deactivation restores an existing modular selection. `synthesis-console
-synthesis --help` is inert. Server, demo and autostart commands never invoke the
-lifecycle bridge.
-
-Bun 1.3.13 or newer runs the Console. npm supplies the package, not Bun.
-Default core setup also needs Git and Python 3.12–3.14. Opt-out needs only
-Python 3.9 or newer in addition to Bun. The release archive bundles the three
-JavaScript dependencies; runtime use does not install packages from a registry.
+Bun 1.3.13 or newer runs the Console. npm supplies the package, not Bun. The
+release archive bundles the three JavaScript dependencies; runtime use does not
+install packages from a registry. The synthesis v5 views also need synthesis v5
+itself, installed by the synthesis-skills plugin in a harness, and Python 3 for
+its scripts. The Console bundles neither and has no setup step.
 
 Release archives and their versioned installer are attached to
 [GitHub releases](https://github.com/synthesisengineering/synthesis-console/releases).
@@ -250,8 +194,6 @@ bun install --frozen-lockfile --ignore-scripts
 bun run demo
 ```
 
-Source checkout setup requires a built release with its verified thin core
-package. Source users can run the Console immediately without staging core.
 
 ## Configuration
 
@@ -403,7 +345,7 @@ Uninstallation verifies that the owned service is stopped before removing its st
 
 Successful removal retains the exact startup file in a private `.synthesis-console-retired-*` directory beside its original location and its ownership receipt under `${XDG_STATE_HOME:-~/.local/state}/synthesis-console/autostart-retired-*`. These files are inactive recovery evidence. If retirement is interrupted, rerunning the uninstall command restores the owned files and retries verification. A failed systemd reload or receipt finalization restores the files when their paths remain free; foreign replacements are preserved, with the transaction journal naming the retained recovery files. Console configuration and logs are untouched.
 
-The service installer prepares and verifies the same private Python runtime as `synthesis-console setup`. A missing Python 3.9+ base or altered dependency payload fails before service registration; no global Python packages are changed.
+The service runs with a fixed PATH (Bun's folder plus the system and Homebrew folders), so `python3` resolves there. If your synthesis v5 runtime lives outside `~/.synthesis/v5`, or v5 scripts need a different interpreter, set `SYNTHESIS_HOME` or `SYNTHESIS_PYTHON_BIN` when you run `synthesis-console autostart install`; the installer writes each into the service only when it is set.
 
 The server runs on its usual loopback port (5555 by default, auto-incrementing if busy). Open `http://localhost:5555` any time.
 
@@ -485,13 +427,15 @@ Plans include draft messages with grounding — each draft shows the research be
 
 Synthesis Console is the viewing layer. The methodology that produces the files it renders comes from [synthesis skills](https://github.com/synthesisengineering/synthesis-skills) — a library of open-source agent skills for project management, context lifecycle, daily planning, code review, and more.
 
-To use the complete system:
+To use the complete system, install synthesis-skills v5 (one plugin for Claude
+Code, Codex and Muse, with its runtime and the `synthesis` command) on macOS:
 
 ```bash
-# Install and explicitly configure the full ecosystem
-npm install -g @synthesiswork/synthesis
-synthesis setup --profile full
+curl -fsSL https://raw.githubusercontent.com/synthesisengineering/synthesis-skills/stable/onboard.sh | sh
 ```
+
+The synthesis-skills README describes installing one harness at a time and what
+the installer changes.
 
 The skills create and maintain the files. The console renders them. Together they form a complete synthesis engineering workflow.
 
@@ -504,11 +448,32 @@ The skills create and maintain the files. The console renders them. Together the
 
 **Source scoping (v1.0.1+).** The source picker is the view scope for the whole app: content from deselected sources doesn't render anywhere — union lists AND source-scoped detail pages (`/plans/:source/:date`, `/projects/:source/:id`, `/prep/…`, `/ledger/…`). A direct URL or bookmark into a deselected source shows a "Source not active" page instead of the content. Selecting only the Demo source therefore makes every real source unreachable through the browser — safe for screen-sharing. For fully unattended demos, `bun run demo` remains the stronger, config-level isolation (real sources aren't even loaded).
 
-Synthesis Console binds explicitly to `127.0.0.1`. It reads your own files from your own filesystem. Stylesheets and demo assets are bundled, so ordinary local browsing works offline and makes no third-party asset requests. The Console has no telemetry. Configured Slack actions, synchronization, and explicitly invoked ecosystem audits may use network services; those are separate from viewing local files. It does not call a model provider itself.
+Synthesis Console binds explicitly to `127.0.0.1`. It reads your own files from your own filesystem. Stylesheets and demo assets are bundled, so ordinary local browsing works offline and makes no third-party asset requests. The Console has no telemetry. Configured Slack actions and synchronization may use network services; those are separate from viewing local files. The synthesis v5 programs the Console runs (the doctor, the context doctor and the repo scan) read local state; the doctor runs without its optional release check, which is the one that goes to the network. It does not call a model provider itself.
 
 - **Path traversal:** URL parameters are sanitized to prevent directory traversal attacks
 - **XSS:** User-provided data is escaped in HTML output; interactive elements use event delegation instead of inline handlers
 - **Markdown HTML:** Rendered without sanitization (deliberate — this is a local tool reading your own files; sanitizing would break legitimate HTML in markdown)
+
+## Program runs and keyboard access
+
+The Conformance, Context and Sync views run v5 programs as finite helpers in
+owned POSIX process groups: each run has a time limit and an output limit, and a
+timeout, overflow or surviving descendant triggers bounded cleanup before the
+result returns. A run that fails shows its reason on the page; it never reads as a
+pass. Unresolved cleanup refuses further helpers and stays visible as a failure.
+This does not establish confinement of hostile processes.
+
+`synthesis-console autostart status` reports the platform paths the Console's
+service owner uses and the v5 runtime paths under `SYNTHESIS_HOME`, without
+querying or changing a service. macOS uses user launchd; Linux and WSL require an
+actual systemd user manager. Native Windows remains explicitly unsupported by
+these owners. Receipt or filesystem disagreement preserves the existing files.
+
+The skip link, named navigation, explicit source Apply control and live run
+feedback support keyboard and assistive navigation without relying on color.
+Source tests require a sandbox-capable Chromium path in `SYNTHESIS_TEST_CHROMIUM`
+(CI supplies one); a missing browser is a failure, never a silent skip. Browser
+acceptance uses synthetic local data, not participant studies.
 
 ## Contributing
 
@@ -528,134 +493,3 @@ bun run demo   # Run with sample data
 ---
 
 Built by [Rajiv Pant](https://rajiv.com). Part of the [synthesis engineering](https://synthesisengineering.org) ecosystem.
-
-## Autopilot work and questions
-
-Open **Autopilot** to select an active-source project, read its run status, or
-prepare a first task in plain language. The agent prepares its plan, profile and
-acceptance criteria. The Console does not require users to author a contract.
-
-A run page reads the existing owner-validated journal each time. Working,
-waiting, unhealthy, completed and cancelled are **recorded** states. Native
-liveness, current outcome acceptance, notification delivery and the version
-loaded by an existing agent remain unknown until their owners verify them.
-Measured progress and unmeasured notes appear separately. The resource ledger
-shows estimates and unresolved accounting without claiming a provider invoice.
-
-The **Question fallback** page is independent of the native task pane. It shows
-pending durable questions even when that pane is hidden. Answers, recovery and
-cancellation controls prepare requests for the existing native owner. Copying
-is explicitly **not submitted** and **not performed**. Requests bind the run and
-observed revision; stale execution is refused by the controller. Terminal runs
-retain unfinished obligations without offering a restart that their state
-machine does not support. Maintenance buttons prepare doctor, repair, update,
-safe pause and cold-recovery requests through existing owners.
-
-The operator surface provides GET HTML and JSON routes only. It neither creates
-an actor nor mints approval. Existing journal-owned supervision requests can be
-shown when the matching supervision reader is installed; a lease is not a wake,
-and Console automatic native launch is unavailable. No extra daemon or queue is
-created. This fallback depends on the Console being reachable; it does not prove
-an OS alert was delivered or that work survives app exit, logout or reboot.
-
-Python reads use the Console's verified setup runtime, a fixed operator helper,
-argument vectors, an eight-second limit per subprocess and a one-MiB output
-limit. At most two reads run at once. Detail routes gate inactive sources before
-reading paths. Registry selection uses the existing PM causal resolver without
-fetching, fast-forwarding or refreshing coordination. It can select a newer
-attributed worktree; conflicts remain explicit and never fall back to a stale
-canonical journal. Registry, project and run redirects are refused.
-
-Run discovery returns eight recent entries per page (at most 32). Older runs and
-questions remain accessible through page links; no history is deleted or archived.
-Filesystem timestamps guide ordering only. Cursors bind the inventory and page
-size, so a concurrent change asks for a first-page refresh. Question coverage is
-explicitly limited to the displayed page. The 4,096-entry inventory ceiling and
-per-journal 32 MiB bound retain a finite read; exact-run selection bypasses the
-inventory scan. Oversized or unreadable evidence produces an explicit diagnostic
-rather than an empty success. Readers require the
-matching `synthesis-autopilot/scripts/operator_status.py`; an older installation
-gets an actionable unavailable state. `SYNTHESIS_AUTOPILOT_DIR` is an operator-set
-skill-directory override for source testing, never a request parameter.
-## Optional owner-prepared continuation: capability boundary
-
-The operator views and private delivery lifecycle are implemented. **Automatic
-Console continuation is unavailable until a verified full process-tree custody
-backend is implemented and qualified.** Enrollment and submission refuse before
-storing a bearer or starting a helper. There is no browser, environment or CLI
-option that bypasses this check. Installing or starting Console creates no grant,
-service enrollment or native turn.
-
-Independent local process tests found that a helper can spawn a detached child
-and exit before a process sample observes the child. Process-group signals and
-ancestry sampling cannot establish complete cleanup in that case. macOS kqueue
-NOTE_TRACK is unsupported, and launchd's process-group cleanup does not contain
-setsid escapes. A direct child-registration handshake also does not contain
-uninstrumented native grandchildren. Those are concrete capability requirements;
-the adapter does not mark unknown containment as healthy or operationally ready.
-
-`supervision status` and the read-only
-`/api/autopilot/supervision-health` endpoint expose local delivery counts,
-`automatic_continuation: UNAVAILABLE`, `process_tree_custody: UNAVAILABLE` and
-`operational_ready: false`. `active_local_process` describes this process;
-activity in another Console process is explicitly unknown. Source tests use a
-clearly labeled synthetic custody seam to exercise the remaining mechanics,
-including actual interpreter/owner imports and private stdin. They do not enable
-or qualify production continuation.
-
-The retained delivery implementation uses an explicit installed release and
-Console Python setup generation, a mode0700 private directory, mode0600
-single-link credentials, stable-byte checks and an enrollment-wide OS lock.
-A five-field request contains `project`, `run_id`, `permit_id`, `token` and
-`runtime_root`. Bearers belong only in private stdin and temporary credential
-files, never command arguments, environment variables, browser requests or logs.
-A finite 64-record retention limit refuses additional intake without dropping
-evidence; claimed delivery never automatically replays. The run journal remains
-the authority for grants, native cancellation, current admission and outcomes.
-
-`supervision stop` closes local admission. `supervision uninstall` retires
-unclaimed credentials while preserving secret-free pointers and journal
-cancellation tombstones; neither removes Console's existing launchd/systemd
-service. After the native owner reconciles or cancels a permit, `supervision
-reconcile` reads the verified journal and retires the matching local fence. It
-cannot grant a retry, mutate the journal or manufacture native identity. Upgrade
-preserves unresolved delivery and requires renewed generation verification.
-
-Completing automatic continuation still requires an actual OS or native custody
-mechanism that prevents descendant escape, bounds shutdown after parent loss,
-and distinguishes pre-existing, owned and explicitly transferred background work.
-The actual Console-to-admitted-owner positive join and per-platform service
-acceptance must then pass under that mechanism. Native PM recovery, subsequent
-wakes, app exit, logout, reboot, offline and multi-machine survival each require
-their own evidence. Read-only status and the separately qualified native-owner
-one-shot consumer remain usable within their verified capabilities.
-
-## Finite helper custody
-
-Release 1.5.2 keeps finite diagnostic and project-reader helpers in owned POSIX
-process groups. Timeout, output overflow, cancellation and surviving inherited
-descendants trigger bounded cleanup before returning. Unresolved cleanup
-refuses further helper admission and remains visible as a failure. Each work
-deadline retains a separate 1.5-second cleanup allowance. Runtime resolution
-is asynchronous and bounded. This does not establish hostile-process
-confinement or native-agent recovery.
-
-## Evidence, platform mapping and keyboard access
-
-The conformance panel validates the shared version-1 five-plane report schema,
-source/machine/project identity and four-hour freshness. Missing evidence remains
-UNKNOWN. Installed files and an audit report never grant hook trust or service
-permission. The skip link, named navigation, explicit source Apply control and
-live audit feedback support keyboard and assistive navigation without relying
-on color. Browser acceptance uses synthetic local data, not participant studies.
-
-`synthesis-console autostart status` reports the existing owner's exact platform
-paths without querying or changing a service. macOS uses user launchd; Linux and
-WSL require an actual systemd user manager. Native Windows remains explicitly
-unsupported by these owners. WSL does not borrow Windows-home authority. Receipt
-or filesystem disagreement preserves the existing files. Retirement executes
-bounded manager commands with descendant cleanup under the existing owner.
-
-Source tests require a sandbox-capable Chromium path in `SYNTHESIS_TEST_CHROMIUM`
-and the paired public source in `SYNTHESIS_CORE_SOURCE`; CI supplies both. Browser
-or prerequisite failures are failures, never silently skipped.

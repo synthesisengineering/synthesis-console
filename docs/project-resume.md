@@ -46,10 +46,11 @@ workspace roots.
 ## Skill-presence detection
 
 The console checks for any install of `synthesis-project-resume`
-via `resolveSkillFile` (the `~/.synthesis/skills` route, the
-Claude / Codex / Muse plugin caches including the Muse
-`package/`-nested layout, and the user-skill dirs) purely to
-decide whether to warn. When no install carries the skill yet, the
+via `resolveSkillFile` (the synthesis v5 runtime at
+`$SYNTHESIS_HOME/current/skills`, then the Claude Code / Codex /
+Muse plugin caches including the Muse `package/`-nested layout,
+counting only plugin versions that carry the v5 runtime package)
+purely to decide whether to warn. When no install carries the skill yet, the
 prompt gains a second sentence saying to install synthesis-skills.
 No filesystem path is ever emitted.
 

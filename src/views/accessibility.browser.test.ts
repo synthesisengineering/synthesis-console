@@ -5,9 +5,8 @@ import { mkdtempSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { layout } from "./layout.js";
-import { agentConformanceView } from "./agent-conformance.js";
-import fixture from "../contracts/report-fixture.json";
-import type { AgentConformanceStatus } from "../agent-conformance.js";
+import { conformanceView } from "./conformance.js";
+import type { DoctorStatus } from "../doctor.js";
 
 test("keyboard focus, named controls, status meanings and AX tree are real browser behavior", async () => {
   const chrome = process.env.SYNTHESIS_TEST_CHROMIUM;
@@ -16,19 +15,26 @@ test("keyboard focus, named controls, status meanings and AX tree are real brows
     "The complete interface requires SYNTHESIS_TEST_CHROMIUM; no browser skip is accepted.",
   ).toBeTruthy();
   const root = mkdtempSync(join(tmpdir(), "console-accessibility-"));
-  const value: AgentConformanceStatus = {
-    conformanceAvailable: true,
-    report: fixture as any,
+  const value: DoctorStatus = {
+    launcher: "/synthetic/.synthesis/v5/bin/synthesis",
+    installed: true,
+    report: {
+      healthy: true,
+      ms: 1800,
+      checks: [
+        { status: "ok", name: "runtime", detail: "current release matches" },
+        { status: "warn", name: "hook self-test", detail: "denied in 54 ms, over the 50 ms budget" },
+        { status: "info", name: "latest", detail: "not checked" },
+      ],
+    },
+    error: null,
+    elapsedMs: 2100,
+    checkedAt: "2026-10-06T12:00:00.000Z",
     ageSeconds: 10,
-    stale: false,
-    auditing: false,
-    auditError: null,
-    contextGeneratedAt: null,
-    contextAgeSeconds: null,
   };
   const html = layout({
     title: "Synthetic conformance",
-    content: agentConformanceView(value),
+    content: conformanceView(value),
     sources: [
       {
         name: "one",
@@ -54,16 +60,17 @@ test("keyboard focus, named controls, status meanings and AX tree are real brows
     port: 0,
     fetch(req) {
       const p = new URL(req.url).pathname;
-      if (p === "/api/conformance/audit") {
+      if (p === "/api/conformance/refresh") {
         calls++;
-        return Response.json({ ok: false });
+        return Response.json({ ok: false, error: "fixture refusal" });
       }
       if (p.startsWith("/api/"))
         return Response.json({
           ok: true,
-          status: "UNKNOWN",
-          requiredFailures: 1,
-          stale: false,
+          installed: true,
+          healthy: true,
+          failures: 0,
+          warnings: 1,
         });
       if (p === "/style.css")
         return new Response(
@@ -250,34 +257,30 @@ test("keyboard focus, named controls, status meanings and AX tree are real brows
       await evaluate('document.querySelector(".source-picker").open'),
     ).toBeFalse();
     expect(await evaluate("document.activeElement.tagName")).toBe("SUMMARY");
-    let audit = false;
+    let rerun = false;
     for (let i = 0; i < 35; i++) {
       await key("Tab", "Tab", 9);
-      if (
-        await evaluate('document.activeElement.id === "conformance-audit-btn"')
-      ) {
-        audit = true;
+      if (await evaluate('document.activeElement.id === "doctor-run-btn"')) {
+        rerun = true;
         break;
       }
     }
-    expect(audit).toBeTrue();
+    expect(rerun).toBeTrue();
     await key("Enter", "Enter", 13);
     for (let i = 0; i < 100; i++) {
       if (
         await evaluate(
-          'document.getElementById("audit-progress").textContent.includes("could not start")',
+          'document.getElementById("doctor-progress").textContent.includes("could not run")',
         )
       )
         break;
       await Bun.sleep(10);
     }
     expect(calls).toBe(1);
-    expect(await evaluate("document.activeElement.id")).toBe(
-      "conformance-audit-btn",
-    );
+    expect(await evaluate("document.activeElement.id")).toBe("doctor-run-btn");
     expect(
       await evaluate(
-        'document.getElementById("audit-progress").getAttribute("aria-live")',
+        'document.getElementById("doctor-progress").getAttribute("aria-live")',
       ),
     ).toBe("polite");
     evidence.ax = (
@@ -292,7 +295,7 @@ test("keyboard focus, named controls, status meanings and AX tree are real brows
     ).toBeTrue();
     expect(
       evidence.ax.some(
-        (n: any) => n.role?.value === "button" && n.name?.value === "Audit now",
+        (n: any) => n.role?.value === "button" && n.name?.value === "Run again",
       ),
     ).toBeTrue();
     evidence.focusOutline = await evaluate(
@@ -300,10 +303,13 @@ test("keyboard focus, named controls, status meanings and AX tree are real brows
     );
     expect(evidence.focusOutline).toBe("solid");
     evidence.text = await evaluate(
-      'document.getElementById("conformance-boundary").textContent',
+      'document.getElementById("doctor-meaning").textContent',
     );
-    expect(evidence.text).toContain("UNKNOWN means");
+    expect(evidence.text).toContain("never affects");
     expect(evidence.text).toContain("does not approve a hook");
+    expect(
+      await evaluate('document.querySelector("caption").textContent'),
+    ).toBe("3 checks from synthesis doctor");
     expect(
       await evaluate('document.querySelectorAll("[role=listbox]").length'),
     ).toBe(0);
