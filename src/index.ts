@@ -15,7 +15,6 @@ import { autopilotRoutes } from "./routes/autopilot.js";
 import { layout } from "./views/layout.js";
 import { activeSources } from "./active-sources.js";
 import pkg from "../package.json";
-import { Supervisor } from "./autopilot-supervisor.js";
 
 const args = process.argv.slice(2);
 const isDemoFlag = args.includes("--demo");
@@ -30,7 +29,6 @@ if (config.sources.length === 0) {
 }
 
 const app = new Hono();
-const supervisor = new Supervisor({demo:config.demoMode});
 
 // Disable browser caching for all dynamic responses.
 //
@@ -50,12 +48,6 @@ app.use("*", async (c, next) => {
   c.res.headers.set("Pragma", "no-cache");
   c.res.headers.set("Expires", "0");
 });
-
-// Register after the dynamic freshness middleware. This endpoint contains
-// counts and health only; it cannot grant or deliver work.
-if (!config.demoMode) {
-  app.get("/api/autopilot/supervision-health", c=>c.json(supervisor.status()));
-}
 
 app.use("/style.css", serveStatic({ root: "./public" }));
 app.use("/favicon.svg", serveStatic({ root: "./public" }));
@@ -122,12 +114,15 @@ const server = Bun.serve({
   port,
   fetch: app.fetch,
 });
-supervisor.start();
-let stopping=false;
-for(const [signal,code] of [["SIGINT",130],["SIGTERM",143],["SIGHUP",129]] as const)process.on(signal,()=>{
-  if(stopping)return;stopping=true;
-  void supervisor.shutdown().finally(()=>{server.stop(true);process.exit(code);});
-});
+let stopping = false;
+for (const [signal, code] of [["SIGINT", 130], ["SIGTERM", 143], ["SIGHUP", 129]] as const) {
+  process.on(signal, () => {
+    if (stopping) return;
+    stopping = true;
+    server.stop(true);
+    process.exit(code);
+  });
+}
 
 if (port !== preferredPort) {
   console.log(`  Port ${preferredPort} is in use, using ${port} instead.\n`);

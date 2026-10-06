@@ -168,20 +168,6 @@ def _build(source, output, core, provenance, environment):
         env=environment,
         check=True,
     )
-    # The CLI invokes this module without a source tree or node_modules present.
-    subprocess.run(
-        [
-            "bun",
-            "build",
-            "src/autopilot-supervisor.ts",
-            "--target=bun",
-            "--outfile",
-            str(package / "app/autopilot-supervisor.js"),
-        ],
-        cwd=source,
-        env=environment,
-        check=True,
-    )
     subprocess.run(
         [
             "bun",

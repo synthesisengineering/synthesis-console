@@ -1,256 +1,389 @@
-import { finiteCommand } from "./finite-command.js";
-import { lstatSync, realpathSync, readFileSync } from "node:fs";
-import { isAbsolute, join, relative, resolve, sep } from "node:path";
-import { createHash, randomUUID } from "node:crypto";
+/**
+ * Autopilot runs, read from synthesis v5's own records.
+ *
+ * A v5 autopilot run is one markdown plan file in a project. When a session
+ * engages a plan, v5 writes a small pointer at
+ * `$SYNTHESIS_HOME/state/autopilot/<session>.json` holding
+ * {"plan": <absolute plan path>, "streak", "digest", "at"}; the folder first
+ * appears on the first engage. `autopilot_cli.py status --all` reads every
+ * pointer and its plan; this module reads the same records the same way and
+ * never writes either.
+ *
+ * The plan reader mirrors synthesis/autopilot.py (`Plan`): header lines
+ * (`Name: value`, bold allowed, `<placeholder>` counts as empty) before the
+ * first `## ` heading, sections keyed by lower-cased heading text without a
+ * parenthetical, checklist items `- [ ]` / `- [x]`, and HTML comments and
+ * fenced blocks ignored everywhere.
+ */
+import { closeSync, existsSync, fstatSync, openSync, readSync, readdirSync, realpathSync } from "node:fs";
+import { basename, isAbsolute, join, relative, resolve, sep } from "node:path";
 import type { Source } from "./config.js";
-import { loadProjectIndex } from "./parsers/yaml.js";
-import { resolveSkillScript } from "./skill-resolution.js";
-import { synthesisPythonEnv } from "./python-runtime.js";
+import { isDemoSource } from "./config.js";
+import { synthesisHome } from "./v5.js";
 
-export const READ_TIMEOUT_MS = 8000;
-export const MAX_OUTPUT_BYTES = 1024 * 1024;
-export const RUN_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
-export interface OperatorRun {
-  run_id: string; project_id?: string; revision?: number; journal_head?: string;
-  status: "working" | "waiting" | "unhealthy" | "completed" | "cancelled";
-  recorded_status: string; currentness: string; authority_granted: false;
-  updated_at?: string; owner?: {session_uuid: string; native_ref: string}; scope?: string[];
-  questions: {id: string; kind: string; reason: string; reason_truncated?: boolean; at?: string}[];
-  diagnostics: string[]; current_acceptance: "UNKNOWN";
-  last_note?: {summary: string | null; at: string | null; measured: false};
-  last_useful_progress?: unknown; resources?: Record<string, unknown>; checkpoint?: unknown;
-  tasks?: {id: string; status: string}[]; effects?: {id: string; status: string}[];
-  children?: {id: string; status: string}[]; supervision?: Record<string, unknown>;
-  continuation?: unknown; completion?: unknown;
-}
-export interface OperatorReport {
-  schema_version: 1; project: string | null; scope: "READ_ONLY_OPERATOR_VIEW"; observed_at: string;
-  authority_granted: false; runs: OperatorRun[];
-  helper: {path: string; sha256: string; loaded_in_native_session: "UNKNOWN"};
-  registry?: {path: string; sha256: string; project_id: string};
-  resolution?: {status: string; selected_path: string | null; selected_head: string | null; selected_tree: string | null; issues: string[]; fetch: false; refresh_coordination: false; authority_granted: false};
-  pagination?: {total: number; offset: number; limit: number; next_cursor: string | null; order: "FILESYSTEM_RECENCY_HINT"; questions_scope: "THIS_PAGE_ONLY"; inventory_sha256: string};
-}
-export interface OperatorResult { available: boolean; report: OperatorReport | null; diagnostic: string | null; cleanupComplete?: boolean }
+export const OPEN_STATUSES = ["running", "waiting", "blocked", "paused"] as const;
+export const CLOSED_STATUSES = ["done", "incomplete", "cancelled"] as const;
+const SHORT_HORIZONS = ["turn", "sitting", "session"];
+const MAX_PLAN_BYTES = 4 << 20;
+const MAX_POINTER_BYTES = 64 * 1024;
+const MAX_POINTERS = 512;
+/** v5 names a pointer after the session id with every other character replaced by `_`. */
+export const SESSION_FILE = /^[A-Za-z0-9._-]{1,200}$/;
 
-export function safeSegment(value: string): boolean {
-  return /^[A-Za-z0-9][A-Za-z0-9_.-]{0,159}$/.test(value) && value !== "." && value !== "..";
-}
-function containedReal(path: string, root: string, directory: boolean): string {
-  const rel = relative(root, path);
-  if (rel.startsWith(".." + sep) || rel === ".." || isAbsolute(rel)) throw new Error("Path escaped the selected source.");
-  let at = root;
-  for (const part of rel.split(sep).filter(Boolean)) {
-    at = join(at, part);
-    if (lstatSync(at).isSymbolicLink()) throw new Error("Source detail crosses a symbolic link.");
-  }
-  const info = lstatSync(path);
-  if (directory ? !info.isDirectory() : !info.isFile()) throw new Error("Unsupported source file type.");
-  return realpathSync(path);
-}
-export function operatorProjects(source: Source): {id: string; name: string}[] {
-  if (!source.projects_dir) return [];
-  const root = realpathSync(source.root);
-  const directory = containedReal(resolve(root, source.projects_dir), root, true);
-  const index = containedReal(join(directory, "index.yaml"), root, false);
-  if (lstatSync(index).size > 1024 * 1024) throw new Error("Project registry exceeds the read bound.");
-  const rows = loadProjectIndex({...source, root});
-  if (rows.length > 512) throw new Error("Project registry exceeds the project bound.");
-  return rows.filter(row => safeSegment(row.id)).map(row => ({id: row.id, name: row.name || row.id}));
-}
-export function operatorProject(source: Source, id: string): string {
-  // Canonical registry anchor only. Run reads use the PM resolver below.
-  if (!safeSegment(id) || !operatorProjects(source).some(row => row.id === id)) throw new Error("Selected project is not registered.");
-  const root = realpathSync(source.root);
-  return containedReal(resolve(root, source.projects_dir!, id), root, true);
-}
-export function operatorIndex(source: Source, id: string): string {
-  if (!safeSegment(id) || !operatorProjects(source).some(row => row.id === id)) throw new Error("Selected project is not registered.");
-  const root = realpathSync(source.root);
-  return containedReal(resolve(root, source.projects_dir!, "index.yaml"), root, false);
+const FIELD = /^\**([A-Za-z][A-Za-z ]{1,30}?)\**\s*:\**\s*(.*?)\s*$/;
+const ITEM = /^\s*[-*+]\s+\[([ xX])\]\s+(.*?)\s*$/;
+const LIST = /^\s*[-*+]\s+(?:\[([ xX])\]\s+)?(.*?)\s*$/;
+// Python's str.splitlines() boundaries.
+const LINE_BREAK = /\r\n|[\n\v\f\r\x1c\x1d\x1e\x85\u2028\u2029]/;
+
+export interface PlanItem {
+  done: boolean;
+  text: string;
 }
 
-export function operatorScript(): string {
-  const override = process.env.SYNTHESIS_AUTOPILOT_DIR;
-  const selected = override ? join(override, "scripts/operator_status.py") : resolveSkillScript("synthesis-autopilot", "operator_status.py");
-  if (!selected) throw new Error("The operator reader is unavailable. Ask your agent to doctor or update synthesis.");
-  const skill = realpathSync(resolve(selected, "../.."));
-  for (const name of ["operator_status.py", "run_state.py", "autopilot.py"]) {
-    containedReal(join(skill, "scripts", name), skill, false);
-  }
-  return containedReal(join(skill, "scripts/operator_status.py"), skill, false);
-}
-export class HelperCustodyError extends Error { constructor(message:string,readonly cleanupComplete:boolean){super(message);} }
-export async function boundedCommand(executable: string, args: string[], timeout = READ_TIMEOUT_MS, phase = "Operator reader"): Promise<string> {
-  const result=await finiteCommand(executable,args,{env:{...synthesisPythonEnv(),GIT_OPTIONAL_LOCKS:"0",GIT_TERMINAL_PROMPT:"0",GIT_NO_LAZY_FETCH:"1"},timeoutMs:timeout,maxOutputBytes:MAX_OUTPUT_BYTES});
-  if(result.kind==='success')return result.stdout;
-  const detail=(result.stderr||result.stdout).trim().slice(0,2048);
-  let reason:string;
-  if(result.kind==='timeout')reason=`exceeded its ${timeout} ms time bound`;
-  else if(result.kind==='output')reason='exceeded its output bound';
-  else if(result.kind==='signal')reason=`terminated by signal ${result.signal}`;
-  else if(result.kind==='exit')reason=`exited with code ${result.code}`;
-  else if(result.kind==='launch')reason=`could not start (${result.detail})`;
-  else reason=result.detail;
-  throw new HelperCustodyError(`${phase} ${reason}${detail?": "+detail:"."}`,result.cleanupComplete);
-}
-export function validateReport(value: unknown, project: string, script: string, runId?: string, registry?: {path: string; id: string}): OperatorReport {
-  const data = value as OperatorReport;
-  if (!data || data.schema_version !== 1 || data.scope !== "READ_ONLY_OPERATOR_VIEW" || data.authority_granted !== false ||
-      (!registry && data.project !== project) || !Array.isArray(data.runs) || data.runs.length > 32 ||
-      !data.helper || data.helper.path !== script || data.helper.loaded_in_native_session !== "UNKNOWN" ||
-      data.helper.sha256 !== createHash("sha256").update(readFileSync(script)).digest("hex") ||
-      typeof data.observed_at !== "string" || !Number.isFinite(Date.parse(data.observed_at))) throw new Error("Operator reader returned an unbound report.");
-  if (registry) {
-    const selected = data.resolution;
-    if (!data.registry || data.registry.path !== registry.path || data.registry.project_id !== registry.id ||
-        data.registry.sha256 !== createHash("sha256").update(readFileSync(registry.path)).digest("hex") ||
-        !selected || !["PASS", "LOCAL_RECOVERABLE", "CONFLICT", "UNKNOWN"].includes(selected.status) ||
-        selected.fetch !== false || selected.refresh_coordination !== false || selected.authority_granted !== false ||
-        !Array.isArray(selected.issues) || selected.issues.length > 32 || selected.issues.some(x => typeof x !== "string")) throw new Error("Operator resolution is not bound to the selected registry.");
-    if (["PASS", "LOCAL_RECOVERABLE"].includes(selected.status)) {
-      if (!data.project || data.project !== selected.selected_path || !isAbsolute(data.project) || realpathSync(data.project) !== data.project) throw new Error("Resolved project path is invalid.");
-    } else if (data.project !== null || data.runs.length) throw new Error("Conflicted project cannot expose a selected run.");
-  }
-  const page = data.pagination;
-  if (page && (!Number.isSafeInteger(page.total) || !Number.isSafeInteger(page.offset) || !Number.isSafeInteger(page.limit) ||
-      page.total < 0 || page.offset < 0 || page.offset > page.total || page.limit < 1 || page.limit > 32 ||
-      data.runs.length > page.limit || page.order !== "FILESYSTEM_RECENCY_HINT" || page.questions_scope !== "THIS_PAGE_ONLY" ||
-      !/^[a-f0-9]{64}$/.test(page.inventory_sha256) ||
-      (page.next_cursor !== null && (typeof page.next_cursor !== "string" || !/^[A-Za-z0-9_=-]{1,512}$/.test(page.next_cursor))))) throw new Error("Operator pagination is invalid.");
-  for (const row of data.runs) {
-    if (!row || typeof row.run_id !== "string" || (runId && row.run_id !== runId) ||
-        !["working", "waiting", "unhealthy", "completed", "cancelled"].includes(row.status) ||
-        row.authority_granted !== false || row.current_acceptance !== "UNKNOWN" ||
-        !Array.isArray(row.questions) || row.questions.length > 64 || !Array.isArray(row.diagnostics) ||
-        row.diagnostics.some(x => typeof x !== "string") ||
-        row.questions.some(q => !q || typeof q.id !== "string" || typeof q.reason !== "string" || typeof q.kind !== "string")) throw new Error("Operator reader returned invalid run data.");
-    if (row.currentness === "JOURNAL_VERIFIED_RECORDED_STATE" && (!RUN_ID.test(row.run_id) ||
-        !Number.isSafeInteger(row.revision) || row.revision! < 1 || !/^[a-f0-9]{64}$/.test(row.journal_head || ""))) throw new Error("Operator run has no valid journal binding.");
-  }
-  return data;
-}
-export type OperatorPage = {limit?: number; cursor?: string};
-export type OperatorPendingPhase = "PENDING_RUNTIME" | "PENDING_READER";
-export type OperatorObservationState = OperatorPendingPhase | "COMPLETE" | "REFUSED" | "FAILED" | "CLEANUP_UNRESOLVED" | "BUSY" | "UNAVAILABLE";
-export type OperatorReader = (source: Source, id: string, runId?: string, page?: OperatorPage, phase?: (value: OperatorPendingPhase) => void) => Promise<OperatorResult>;
-export type OperatorObservationBinding = (source: Source, id: string, runId?: string, page?: OperatorPage) => string;
-export interface OperatorObservation extends OperatorResult {
-  authority_granted: false;
-  observation: {id: string | null; state: OperatorObservationState; started_at: string | null};
-}
-function selectionKey(source: Source, id: string, runId: string | undefined, page: OperatorPage): string {
-  if (!safeSegment(source.name) || !safeSegment(id) || (runId !== undefined && !RUN_ID.test(runId))) throw new Error("Invalid operator selection.");
-  const limit = page.limit ?? 8;
-  if (!Number.isSafeInteger(limit) || limit < 1 || limit > 32 ||
-      (page.cursor !== undefined && (runId || !/^[A-Za-z0-9_=-]{1,512}$/.test(page.cursor)))) throw new Error("Invalid operator page selection.");
-  return JSON.stringify([source.name, source.root, source.projects_dir, id, runId ?? null, limit, page.cursor ?? null]);
-}
-/** Cheap invalidation only. Equal bindings never certify unchanged project content. */
-export function operatorObservationBinding(source: Source, id: string, runId?: string, page: OperatorPage = {}): string {
-  selectionKey(source, id, runId, page);
-  const index = operatorIndex(source, id);
-  const script = operatorScript();
-  return JSON.stringify([index, createHash("sha256").update(readFileSync(index)).digest("hex"),
-    script, createHash("sha256").update(readFileSync(script)).digest("hex")]);
-}
-interface ObservationSlot {
-  id: string; key: string; binding: string; startedAt: string; running: boolean;
-  state: OperatorObservationState; result: OperatorResult; pinned: boolean;
-}
-/** Two bounded delivery slots for the existing finite reader. Polls never start work. */
-export class OperatorObservations {
-  private slots: ObservationSlot[] = [];
-  constructor(private readonly reader: OperatorReader = readOperator,
-    private readonly binding: OperatorObservationBinding = operatorObservationBinding) {}
-  private empty(state: OperatorObservationState, diagnostic: string, slot?: ObservationSlot): OperatorObservation {
-    return {available:false, report:null, diagnostic, authority_granted:false,
-      observation:{id:slot?.id ?? null,state,started_at:slot?.startedAt ?? null}};
-  }
-  private snapshot(slot: ObservationSlot): OperatorObservation {
-    return {...structuredClone(slot.result), authority_granted:false,
-      observation:{id:slot.id,state:slot.state,started_at:slot.startedAt}};
-  }
-  observe(observationId: string, source: Source, id: string, runId?: string, page: OperatorPage = {}): OperatorObservation {
-    try {
-      const key=selectionKey(source,id,runId,page);
-      const slot=this.slots.find(item=>item.id===observationId && item.key===key);
-      if (!RUN_ID.test(observationId) || !slot) return this.empty("UNAVAILABLE","This observation is unavailable. Start a new read explicitly.");
-      if (this.binding(source,id,runId,page)!==slot.binding) return this.empty("REFUSED","The source registry or reader changed. This observation cannot be displayed.",slot);
-      return this.snapshot(slot);
-    } catch { return this.empty("REFUSED","The selected source is no longer safe or available."); }
-  }
-  start(source: Source, id: string, runId?: string, page: OperatorPage = {}): OperatorObservation {
-    let key: string, binding: string;
-    try { key=selectionKey(source,id,runId,page); binding=this.binding(source,id,runId,page); }
-    catch { return this.empty("REFUSED","The selected source is unsafe or unavailable."); }
-    const existing=this.slots.find(item=>item.key===key && (item.running || item.pinned));
-    if (existing) return this.observe(existing.id,source,id,runId,page);
-    if (this.slots.length===2) {
-      const retired=this.slots.findIndex(item=>!item.running && !item.pinned);
-      if (retired<0) return this.empty("BUSY","Two bounded reads still hold their slots. Observe them or wait for owner cleanup.");
-      this.slots.splice(retired,1);
+/** A plan file read the way synthesis/autopilot.py reads it. */
+export class Plan {
+  readonly fields: Record<string, string> = {};
+  readonly sections: Record<string, string[]> = {};
+
+  constructor(readonly path: string, readonly text: string) {
+    let current: string | null = null;
+    for (const line of visibleLines(text)) {
+      if (line.startsWith("## ")) {
+        current = line.slice(3).replace(/\s*\(.*$/, "").trim().toLowerCase();
+        this.sections[current] ??= [];
+      } else if (current !== null) {
+        this.sections[current].push(line);
+      } else if (!line.startsWith("#")) {
+        const match = FIELD.exec(line.trim());
+        if (match) {
+          const name = match[1].trim().toLowerCase();
+          if (!(name in this.fields)) this.fields[name] = match[2].trim();
+        }
+      }
     }
-    const slot:ObservationSlot={id:randomUUID(),key,binding,startedAt:new Date().toISOString(),running:true,
-      state:"PENDING_RUNTIME",result:{available:false,report:null,diagnostic:null},pinned:false};
-    this.slots.push(slot);
-    // Attach both continuations before returning. Client disconnect or polling cannot
-    // abandon custody, relaunch, or reset either existing helper deadline.
-    let pending: Promise<OperatorResult>;
-    try { pending=this.reader(source,id,runId,{...page},phase=>{ if(slot.running)slot.state=phase; }); }
-    catch(error) { pending=Promise.reject(error); }
-    void pending.then(result=>{
-      slot.pinned=result.cleanupComplete===false;
-      if (Buffer.byteLength(JSON.stringify(result),"utf8")>MAX_OUTPUT_BYTES) throw new Error("Observation report exceeds its output bound.");
-      slot.result=structuredClone(result);
-      slot.state=slot.pinned?"CLEANUP_UNRESOLVED":result.available?"COMPLETE":result.report?"REFUSED":"FAILED";
-    }).catch(error=>{
-      if(error instanceof HelperCustodyError && !error.cleanupComplete)slot.pinned=true;
-      slot.result={available:false,report:null,diagnostic:error instanceof HelperCustodyError?error.message.slice(0,2048):"Operator observation failed.",cleanupComplete:!slot.pinned};
-      slot.state=slot.pinned?"CLEANUP_UNRESOLVED":"FAILED";
-    }).finally(()=>{slot.running=false;});
-    return this.snapshot(slot);
+  }
+
+  field(name: string): string {
+    const value = this.fields[name] ?? "";
+    return !value || (value.startsWith("<") && value.endsWith(">")) ? "" : value;
+  }
+
+  /** The first word of Status, lower case; `canceled` reads as `cancelled`. */
+  get status(): string {
+    const word = /^[a-z]+/.exec(this.field("status").toLowerCase());
+    if (!word) return "";
+    return word[0] === "canceled" ? "cancelled" : word[0];
+  }
+
+  /** What follows the status word: the reason of an incomplete or cancelled close. */
+  get statusReason(): string {
+    return this.field("status").replace(/^[A-Za-z]+[\s:—–-]*/, "").trim();
+  }
+
+  get title(): string {
+    const heading = splitLines(this.text).find((line) => line.startsWith("# ")) ?? "";
+    return heading.replace(/^#\s*(Autopilot plan:\s*)?/, "").trim() || basename(this.path).replace(/\.[^.]*$/, "");
+  }
+
+  items(section: string): PlanItem[] {
+    const found: PlanItem[] = [];
+    for (const line of this.sections[section] ?? []) {
+      const match = ITEM.exec(line);
+      if (match) found.push({ done: match[1] !== " ", text: match[2] });
+    }
+    return found;
+  }
+
+  openItems(section = "checklist"): string[] {
+    return this.items(section).filter((item) => !item.done).map((item) => item.text);
+  }
+
+  /** Open questions only the principal can answer: unchecked or plain list items. */
+  questions(): string[] {
+    const found: string[] = [];
+    for (const line of this.sections["questions for the principal"] ?? []) {
+      const match = LIST.exec(line);
+      if (match && match[2] && (match[1] === undefined || match[1] === " ")) found.push(match[2]);
+    }
+    return found;
+  }
+
+  get longHorizon(): boolean {
+    const word = /^[a-z-]+/.exec(this.field("horizon").toLowerCase());
+    return word !== null && !SHORT_HORIZONS.includes(word[0]);
   }
 }
 
-let inFlight = 0;
-export async function readOperator(source: Source, id: string, runId?: string, page: OperatorPage = {}, phase?: (value: OperatorPendingPhase) => void): Promise<OperatorResult> {
-  if (inFlight >= 2) return {available: false, report: null, diagnostic: "Two reads are in progress. Refresh after they finish."};
-  inFlight++;
-  let cleanupComplete=true;
-  try {
-    if (runId && !RUN_ID.test(runId)) throw new Error("Invalid run identity.");
-    const index = operatorIndex(source, id);
-    const limit = page.limit ?? 8;
-    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 32 ||
-        (page.cursor !== undefined && (runId || !/^[A-Za-z0-9_=-]{1,512}$/.test(page.cursor)))) throw new Error("Invalid operator page selection.");
-    const script = operatorScript();
-    const before = createHash("sha256").update(readFileSync(script)).digest("hex");
-    // Use the same owned runtime verifier as every Python-backed Console action,
-    // with a finite asynchronous boundary around both resolution and journal read.
-    phase?.("PENDING_RUNTIME");
-    const python = (await boundedCommand("bash", [resolve(import.meta.dir, "../scripts/python-runtime.sh"), "resolve"], READ_TIMEOUT_MS, "Runtime verification")).trim();
-    if (!isAbsolute(python) || python.includes("\n") ||
-        (process.env.SYNTHESIS_PYTHON_BIN?.trim() && process.env.SYNTHESIS_PYTHON_BIN.trim() !== python)) throw new Error("Verified Python runtime selection differs. Ask your agent to repair Console setup.");
-    phase?.("PENDING_READER");
-    const output = await boundedCommand(python, ["-I", "-B", script, "--index", index, "--project-id", id,
-      "--limit", String(limit), ...(page.cursor ? ["--cursor", page.cursor] : []), ...(runId ? ["--run-id", runId] : [])]);
-    const report = validateReport(JSON.parse(output), "", script, runId, {path: index, id});
-    if (before !== report.helper.sha256) throw new Error("Operator reader changed during this read. Refresh after the update completes.");
-    if (!["PASS", "LOCAL_RECOVERABLE"].includes(report.resolution!.status) || !report.project) return {available: false, report,
-      diagnostic: "Project resolution " + report.resolution!.status + ": " + (report.resolution!.issues.join("; ") || "No current readable project was selected.")};
-    return {available: true, report, diagnostic: null};
-  } catch (error) {
-    if(error instanceof HelperCustodyError)cleanupComplete=error.cleanupComplete;
-    return {available: false, report: null, diagnostic: error instanceof Error ? error.message : "Operator read unavailable.", cleanupComplete};
-  } finally { if(cleanupComplete)inFlight--; }
+/** Python's str.splitlines(): no empty element after a final line break. */
+export function splitLines(text: string): string[] {
+  const lines = text.split(LINE_BREAK);
+  if (lines[lines.length - 1] === "") lines.pop();
+  return lines;
 }
 
-/** Preparation only: execute through the existing authenticated native owner. */
-export function prepareControl(run: OperatorRun, action: "resume" | "cancel", reason: string, requestId: string) {
-  if (["completed", "cancelled", "incomplete"].includes(run.recorded_status) || run.currentness !== "JOURNAL_VERIFIED_RECORDED_STATE" || !RUN_ID.test(run.run_id) || !RUN_ID.test(requestId) ||
-      !Number.isSafeInteger(run.revision) || !run.project_id || !reason.trim() || reason.length > 2048) throw new Error("A control needs an exact verified recorded run and reason.");
-  return {schema_version: 1, request_id: requestId, operation: action === "cancel" ? "cancel" : "recover",
-    project_id: run.project_id, run_id: run.run_id, expected_revision: run.revision,
-    input: action === "cancel" ? {reason, target: "run"} : {reconcile_sources: true}};
+/** Lines outside HTML comments and fenced blocks: examples there never count. */
+export function visibleLines(text: string): string[] {
+  const lines: string[] = [];
+  let fence = "";
+  for (const line of splitLines(text.replace(/<!--[\s\S]*?-->/g, ""))) {
+    const marker = line.trimStart().slice(0, 3);
+    if (marker === "```" || marker === "~~~") {
+      fence = fence === marker ? "" : fence || marker;
+      continue;
+    }
+    if (!fence) lines.push(line);
+  }
+  return lines;
+}
+
+function readBounded(path: string, limit: number): { text: string; mtimeMs: number } {
+  const fd = openSync(path, "r");
+  try {
+    const stat = fstatSync(fd);
+    if (!stat.isFile()) throw new Error("not a regular file");
+    const buffer = Buffer.alloc(Math.min(stat.size, limit));
+    let read = 0;
+    while (read < buffer.length) {
+      const count = readSync(fd, buffer, read, buffer.length - read, read);
+      if (!count) break;
+      read += count;
+    }
+    return { text: new TextDecoder("utf-8").decode(buffer.subarray(0, read)), mtimeMs: stat.mtimeMs };
+  } finally {
+    closeSync(fd);
+  }
+}
+
+export function loadPlan(path: string): { plan: Plan; mtimeMs: number } {
+  const { text, mtimeMs } = readBounded(path, MAX_PLAN_BYTES);
+  return { plan: new Plan(path, text), mtimeMs };
+}
+
+export interface RunAttribution {
+  source: string;
+  project: string;
+}
+
+export interface AutopilotRun {
+  /** The pointer file's name without `.json`: the engaging session's id. */
+  session: string;
+  planPath: string | null;
+  /** When v5 last wrote the pointer (ISO 8601), from its `at`. */
+  pointerAt: string | null;
+  /** Turn-end continuation requests in a row for this plan. */
+  streak: number;
+  title: string | null;
+  status: string;
+  statusText: string;
+  statusReason: string;
+  owner: string;
+  /** True when the plan's Owner session is the session that wrote this pointer. */
+  ownedByPointer: boolean;
+  /** Earlier sessions whose pointers still name this plan (after a takeover). */
+  otherSessions: string[];
+  fields: Record<string, string>;
+  checklist: PlanItem[];
+  criteria: PlanItem[];
+  standing: PlanItem[];
+  nextItem: string | null;
+  openBlockers: string[];
+  questions: string[];
+  cycleLedger: string[];
+  planModifiedAt: string | null;
+  longHorizon: boolean;
+  /** Why the plan could not be read; the other plan fields are then empty. */
+  error: string | null;
+  attribution: RunAttribution | null;
+  /** The plan's text, for the detail page. */
+  text: string | null;
+}
+
+export function autopilotStateDir(env: NodeJS.ProcessEnv = process.env): string {
+  return join(synthesisHome(env), "state", "autopilot");
+}
+
+const HEADER_FIELDS = [
+  "harness", "engaged", "horizon", "continuation", "first wake", "backstop", "waiting on", "silent after",
+];
+
+function emptyRun(session: string): AutopilotRun {
+  return {
+    session, planPath: null, pointerAt: null, streak: 0, title: null, status: "", statusText: "",
+    statusReason: "", owner: "", ownedByPointer: false, otherSessions: [], fields: {}, checklist: [], criteria: [], standing: [],
+    nextItem: null, openBlockers: [], questions: [], cycleLedger: [], planModifiedAt: null, longHorizon: false,
+    error: null, attribution: null, text: null,
+  };
+}
+
+/** Read one pointer and its plan. Never throws: a broken record is a run with an error. */
+export function readRun(stateDir: string, session: string): AutopilotRun {
+  const run = emptyRun(session);
+  let pointer: { plan?: unknown; streak?: unknown; at?: unknown };
+  try {
+    pointer = JSON.parse(readBounded(join(stateDir, session + ".json"), MAX_POINTER_BYTES).text);
+  } catch (error) {
+    run.error = `The run record could not be read (${(error as Error).message}).`;
+    return run;
+  }
+  if (!pointer || typeof pointer !== "object" || typeof pointer.plan !== "string" || !pointer.plan) {
+    run.error = "The run record names no plan file.";
+    return run;
+  }
+  run.planPath = pointer.plan;
+  run.streak = Number.isSafeInteger(pointer.streak) ? (pointer.streak as number) : 0;
+  if (typeof pointer.at === "number" && Number.isFinite(pointer.at)) {
+    run.pointerAt = new Date(pointer.at * 1000).toISOString();
+  }
+  if (!isAbsolute(pointer.plan)) {
+    run.error = "The run record's plan path is not absolute.";
+    return run;
+  }
+  let loaded: ReturnType<typeof loadPlan>;
+  try {
+    loaded = loadPlan(pointer.plan);
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    run.error = code === "ENOENT"
+      ? "The plan file no longer exists."
+      : `The plan file could not be read (${code ?? (error as Error).message}).`;
+    return run;
+  }
+  const { plan, mtimeMs } = loaded;
+  const checklist = plan.items("checklist");
+  return {
+    ...run,
+    title: plan.title,
+    status: plan.status,
+    statusText: plan.field("status"),
+    statusReason: plan.statusReason,
+    owner: plan.field("owner session"),
+    ownedByPointer: plan.field("owner session").replace(/[^A-Za-z0-9._-]/g, "_") === session,
+    fields: Object.fromEntries(HEADER_FIELDS.map((name) => [name, plan.field(name)]).filter(([, value]) => value)),
+    checklist,
+    criteria: plan.items("completion criteria"),
+    standing: plan.items("standing checklist"),
+    nextItem: checklist.find((item) => !item.done)?.text ?? null,
+    openBlockers: plan.openItems("blockers"),
+    questions: plan.questions(),
+    cycleLedger: (plan.sections["cycle ledger"] ?? []).map((line) => line.trim()).filter(Boolean),
+    planModifiedAt: new Date(mtimeMs).toISOString(),
+    longHorizon: plan.longHorizon,
+    text: plan.text,
+  };
+}
+
+/** Every pointer in the state folder, newest pointer first. Empty when the folder does not exist yet. */
+export function readRuns(stateDir: string): AutopilotRun[] {
+  let names: string[];
+  try {
+    names = readdirSync(stateDir, { withFileTypes: true })
+      .filter((entry) => entry.isFile() && entry.name.endsWith(".json"))
+      .map((entry) => entry.name.slice(0, -5))
+      .filter((name) => SESSION_FILE.test(name) && name !== "." && name !== "..");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw error;
+  }
+  return names
+    .sort()
+    .slice(0, MAX_POINTERS)
+    .map((name) => readRun(stateDir, name))
+    .sort((a, b) => (b.pointerAt ?? "").localeCompare(a.pointerAt ?? ""));
+}
+
+function inside(path: string, root: string): string | null {
+  const rel = relative(root, path);
+  if (!rel || rel === ".." || rel.startsWith(".." + sep) || isAbsolute(rel)) return null;
+  return rel;
+}
+
+function real(path: string): string {
+  try {
+    return realpathSync(path);
+  } catch {
+    return resolve(path);
+  }
+}
+
+/** The configured source and project a plan lives in, by its path. */
+export function attribute(planPath: string, sources: Source[]): RunAttribution | null {
+  const plan = real(planPath);
+  for (const source of sources) {
+    if (!source.projects_dir) continue;
+    const rel = inside(plan, real(resolve(source.root, source.projects_dir)));
+    if (rel && rel.includes(sep)) return { source: source.name, project: rel.split(sep)[0] };
+  }
+  return null;
+}
+
+export type RunGroup = "open" | "closed" | "other" | "unreadable";
+
+export function runGroup(run: AutopilotRun): RunGroup {
+  if (run.error) return "unreadable";
+  if ((OPEN_STATUSES as readonly string[]).includes(run.status)) return "open";
+  if ((CLOSED_STATUSES as readonly string[]).includes(run.status)) return "closed";
+  return "other";
+}
+
+export interface AutopilotOverview {
+  stateDir: string;
+  /** False when v5 has not created the state folder yet. */
+  stateExists: boolean;
+  runs: AutopilotRun[];
+  /** Runs in configured sources that are not selected, counted but not shown. */
+  hiddenRuns: number;
+}
+
+/** One entry per plan: a takeover leaves the earlier session's pointer naming the same plan. */
+export function onePerPlan(runs: AutopilotRun[]): AutopilotRun[] {
+  const byPlan = new Map<string, AutopilotRun>();
+  const result: AutopilotRun[] = [];
+  for (const run of runs) {
+    if (!run.planPath) {
+      result.push(run);
+      continue;
+    }
+    const key = real(run.planPath);
+    const kept = byPlan.get(key);
+    if (!kept) {
+      byPlan.set(key, run);
+      result.push(run);
+      continue;
+    }
+    if (run.ownedByPointer && !kept.ownedByPointer) {
+      run.otherSessions.push(kept.session, ...kept.otherSessions);
+      byPlan.set(key, run);
+      result[result.indexOf(kept)] = run;
+    } else {
+      kept.otherSessions.push(run.session, ...run.otherSessions);
+    }
+  }
+  return result;
+}
+
+/**
+ * The runs the request may see. The source picker is a view boundary: a run
+ * in an inactive source is counted, never shown. A run outside every
+ * configured source is shown only while a non-sample source is active.
+ */
+export function autopilotOverview(stateDir: string, configured: Source[], active: Source[]): AutopilotOverview {
+  const activeNames = new Set(active.map((source) => source.name));
+  const realActive = active.some((source) => !isDemoSource(source));
+  const runs: AutopilotRun[] = [];
+  let hiddenRuns = 0;
+  for (const run of onePerPlan(readRuns(stateDir))) {
+    run.attribution = run.planPath ? attribute(run.planPath, configured) : null;
+    const visible = run.attribution ? activeNames.has(run.attribution.source) : realActive;
+    if (visible) runs.push(run);
+    else hiddenRuns++;
+  }
+  return { stateDir, stateExists: existsSync(stateDir), runs, hiddenRuns };
+}
+
+/** Whether the request may see this run: the same boundary as the overview. */
+export function runVisible(run: AutopilotRun, configured: Source[], active: Source[]): boolean {
+  run.attribution = run.planPath ? attribute(run.planPath, configured) : null;
+  if (run.attribution) return active.some((source) => source.name === run.attribution!.source);
+  return active.some((source) => !isDemoSource(source));
 }

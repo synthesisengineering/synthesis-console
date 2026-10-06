@@ -3706,21 +3706,27 @@ body[data-cockpit-focus="true"] .cockpit-shell .cockpit-header {
   overflow-wrap: anywhere;
 }
 
-/* Operator view: local, recorded state and explicit handoff controls. */
+/* Autopilot: v5 runs read from their plan files. The left rule carries the
+   status; the badge repeats it in text, so color is never the only signal. */
 .ap-lead { font-size: 1.2rem; }
-.ap-actions { display: flex; flex-wrap: wrap; gap: .75rem; align-items: center; margin: 1rem 0; }
-.ap-actions button { margin: 0; width: auto; }
 .ap-run header { display: flex; flex-direction: column; gap: .3rem; }
-.ap-waiting { border-left: 4px solid #b88a19; }
-.ap-unhealthy, .ap-warning { border-left: 4px solid #b54d45; padding-left: 1rem; }
-.ap-working { border-left: 4px solid #408594; }
-.ap-completed { border-left: 4px solid #478561; }
+.ap-running { border-left: 4px solid #408594; }
+.ap-waiting, .ap-paused { border-left: 4px solid #b88a19; }
+.ap-blocked, .ap-unhealthy { border-left: 4px solid #b54d45; }
+.ap-done { border-left: 4px solid #478561; }
+.ap-incomplete, .ap-cancelled, .ap-none { border-left: 4px solid #8a8f98; }
+.ap-run { padding-left: 1rem; }
 .ap-question { background: var(--pico-card-sectioning-background-color); padding: 1rem; border-radius: .5rem; margin: 1rem 0; }
-.ap-limit, .ap-controls-note { color: var(--pico-muted-color); }
 .ap-facts dt { font-weight: 600; margin-top: .7rem; }
-.ap-facts dd { margin-left: 0; }
-.ap-prepared textarea, .ap-run pre { overflow-wrap: anywhere; white-space: pre-wrap; }
-.ap-prepared[hidden] { display: none; }
+.ap-facts dd { margin-left: 0; overflow-wrap: anywhere; }
+.ap-items { list-style: none; padding-left: 0; }
+.ap-items li { list-style: none; }
+
+/* Conformance: synthesis doctor results. */
+.doctor-healthy { color: #2e7d32; }
+.doctor-unhealthy { color: #d32f2f; }
+tr.doctor-fail td:first-child { color: #d32f2f; }
+tr.doctor-warn td:first-child { color: #ed6c02; }
 
 /* Keyboard access is visible independently of status color. */
 .skip-link { position: fixed; top: 0; left: 1rem; padding: .6rem 1rem; background: white; color: #111; z-index: 1000; transform: translateY(-150%); }
