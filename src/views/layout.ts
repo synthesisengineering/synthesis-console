@@ -59,7 +59,7 @@ export function layout(opts: {
         ${nav}
         ${opts.demoMode ? "" : `<li><a href="/sync" id="sync-chip" class="sync-chip" title="Repo sync status" aria-label="Repository sync status">●<span class="sync-chip-count"></span></a></li>
         <li><a href="/context" id="context-chip" class="sync-chip" title="Context integrity" aria-label="Context integrity status">◆<span class="sync-chip-count"></span></a></li>
-        <li><a href="/conformance" id="conformance-chip" class="sync-chip" title="Agent conformance" aria-label="Agent conformance status">▲<span class="sync-chip-count"></span></a></li>`}
+        <li><a href="/conformance" id="conformance-chip" class="sync-chip" title="Conformance (synthesis doctor)" aria-label="Conformance status from synthesis doctor">▲<span class="sync-chip-count"></span></a></li>`}
         ${picker}
       </ul>
     </nav>
@@ -1425,39 +1425,37 @@ function layoutScript(): string {
         });
       }
 
-      // Agent-conformance chip: green only for fresh PASS evidence; amber for
-      // stale/unknown results; red for required failures; gray when both the
-      // checker and its evidence cache are unavailable.
+      // Conformance chip (synthesis doctor): green when the doctor reports
+      // healthy; red with the failure count when it does not; amber when the
+      // doctor could not produce a trustworthy result; gray when synthesis v5
+      // is not installed or the status is unavailable.
       function renderConformanceChip(data) {
         var chip = document.getElementById('conformance-chip');
         if (!chip) return;
         var count = chip.querySelector('.sync-chip-count');
         chip.classList.remove('sync-ok', 'sync-dirty', 'sync-alert', 'sync-na');
-        if (data && data.auditError) {
-          chip.classList.add('sync-dirty');
-          chip.title = 'Agent conformance: audit error · ' + data.auditError;
-        chip.setAttribute('aria-label',chip.title);
-          if (count) count.textContent = '!';
-          return;
-        }
-        if (!data || (!data.conformanceAvailable && !data.status)) {
+        if (!data || data.installed === false) {
           chip.classList.add('sync-na');
-          chip.title = 'Agent conformance: status unavailable';
-        chip.setAttribute('aria-label',chip.title);
+          chip.title = data ? 'Conformance: synthesis v5 is not installed' : 'Conformance: status unavailable';
+          chip.setAttribute('aria-label', chip.title);
           if (count) count.textContent = '';
           return;
         }
-        var failures = data.requiredFailures || 0;
-        var cls = failures > 0 ? 'sync-alert' : (data.stale || data.status !== 'PASS' ? 'sync-dirty' : 'sync-ok');
-        chip.classList.add(cls);
-        var label = failures > 0
-          ? failures + ' required failure(s)'
-          : (data.stale ? 'evidence stale' : (data.status || 'no recorded result'));
-        chip.title = 'Agent conformance: ' + label
-          + (data.checkedAt ? ' (as of ' + data.checkedAt + ')' : '')
-          + (data.auditing ? ' · audit running' : '');
-        chip.setAttribute('aria-label',chip.title);
-        if (count) count.textContent = failures > 0 ? String(failures) : (data.stale ? '!' : '');
+        if (data.healthy === null || data.error) {
+          chip.classList.add(data.failures > 0 ? 'sync-alert' : 'sync-dirty');
+          chip.title = 'Conformance: ' + (data.error || 'no doctor result');
+          chip.setAttribute('aria-label', chip.title);
+          if (count) count.textContent = '!';
+          return;
+        }
+        var failures = data.failures || 0;
+        var warnings = data.warnings || 0;
+        chip.classList.add(data.healthy ? 'sync-ok' : 'sync-alert');
+        chip.title = 'Conformance: ' + (data.healthy ? 'healthy' : failures + ' failing check(s)')
+          + (warnings ? ', ' + warnings + ' warning(s)' : '')
+          + (data.checkedAt ? ' (as of ' + data.checkedAt + ')' : '');
+        chip.setAttribute('aria-label', chip.title);
+        if (count) count.textContent = failures > 0 ? String(failures) : '';
       }
 
       function pollConformanceChip() {

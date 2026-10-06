@@ -10,7 +10,7 @@ import { peopleRoutes } from "./routes/people.js";
 import { ledgerRoutes } from "./routes/ledger.js";
 import { syncRoutes } from "./routes/sync.js";
 import { contextIntegrityRoutes } from "./routes/context-integrity.js";
-import { agentConformanceRoutes } from "./routes/agent-conformance.js";
+import { conformanceRoutes } from "./routes/conformance.js";
 import { autopilotRoutes } from "./routes/autopilot.js";
 import { layout } from "./views/layout.js";
 import { activeSources } from "./active-sources.js";
@@ -75,7 +75,7 @@ app.route("/", ledgerRoutes(config));
 if (!config.demoMode) {
   app.route("/", syncRoutes(config));
   app.route("/", contextIntegrityRoutes(config));
-  app.route("/", agentConformanceRoutes(config));
+  app.route("/", conformanceRoutes(config));
 }
 
 app.notFound((c) => {
