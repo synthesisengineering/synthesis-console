@@ -3,7 +3,7 @@ import { spawn } from 'node:child_process';
 import { mkdtempSync, readFileSync, existsSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { FiniteCommandOwner, finiteCommand, finiteExecFile, type FiniteKind } from './finite-command.js';
+import { FiniteCommandOwner, finiteCommand, type FiniteKind } from './finite-command.js';
 const roots:string[]=[];
 function alive(pid:number){try{process.kill(pid,0);return true;}catch(e:any){if(e.code==='ESRCH')return false;throw e;}}
 function fixture(mode:string){
@@ -64,9 +64,4 @@ test('cancellation cleans actual descendants before returning',async()=>{
 });
 test('complete output is drained at normal leader exit, including UTF-8 boundaries',async()=>{
  const text='λ🦀'.repeat(90000);const result=await finiteCommand('python3',['-c','import sys;sys.stdout.write("λ🦀"*90000)'],{timeoutMs:3000,maxOutputBytes:1024*1024});expect(result.kind).toBe('success');expect(result.stdout).toBe(text);expect(result.cleanupComplete).toBe(true);
-});
-test('background callback facade completes after inherited descendants die',async()=>{
- const f=fixture('early');try{const result=await new Promise<any>(done=>finiteExecFile(Promise.resolve('python3'),['-B',f.script,f.record,f.mode],{timeout:2000},error=>done(error)));
-  expect(result.result.kind).toBe('descendants');expect(result.cleanupComplete).toBe(true);expect(alive(JSON.parse(readFileSync(f.record,'utf8')).pid)).toBe(false);
- }finally{cleanup(f);}
 });

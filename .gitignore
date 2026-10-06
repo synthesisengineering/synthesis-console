@@ -4,6 +4,5 @@ dist/
 *.log
 .claude/
 
-.test-core-source/
 __pycache__/
 .pytest_cache/

@@ -16,9 +16,6 @@ for (const [p, kernel, env, family] of [
       expect(v.console_unit).toBeNull();
       expect(v.runtime_paths).toEqual({});
     } else {
-      expect(v.console_python).toBe(
-        "/synthetic/.local/share/synthesis-console/python-runtime",
-      );
       expect(v.console_unit).toBe(
         "/synthetic/" +
           (family === "macos"
@@ -51,7 +48,7 @@ test("explicit XDG paths preserved", () => {
     "Linux",
   );
   expect(v.console_unit).toBe("/conf/systemd/user/synthesis-console.service");
-  expect(v.console_python).toBe("/data/synthesis-console/python-runtime");
+  expect(v.console_receipt).toBe("/state/synthesis-console/autostart.json");
 });
 test("runtime paths name the synthesis v5 runtime, honoring SYNTHESIS_HOME", () => {
   expect(platformOwnership("/synthetic", {}, "darwin", "").runtime_paths).toEqual({

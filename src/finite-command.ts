@@ -92,12 +92,3 @@ export class FiniteCommandError extends Error {
  get code(){return this.result.kind==='exit'?this.result.code:this.result.kind;}
  get cleanupComplete(){return this.result.cleanupComplete;}
 }
-/** Callback facade for existing background actions; completion follows custody. */
-export function finiteExecFile(executable:string|Promise<string>,args:string[],options:{env?:NodeJS.ProcessEnv;cwd?:string;timeout:number;maxBuffer?:number},callback:(error:FiniteCommandError|null,stdout:string,stderr:string)=>void):void{
- void (async()=>{
-  let result:FiniteResult;
-  try{result=await finiteCommand(await executable,args,{...options,timeoutMs:options.timeout,maxOutputBytes:options.maxBuffer??1024*1024});}
-  catch(e){result=e instanceof FiniteCommandError?{...e.result,kind:e.cleanupComplete?'launch':'cleanup',code:null,stdout:'',detail:'Verified runtime resolution failed: '+e.message}:{kind:'launch',code:null,signal:null,stdout:'',stderr:'',detail:e instanceof Error?e.message:String(e),cleanupComplete:true};}
-  callback(result.kind==='success'?null:new FiniteCommandError(result),result.stdout,result.stderr);
- })();
-}
