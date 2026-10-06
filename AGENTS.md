@@ -12,7 +12,7 @@ Local dashboard for synthesis engineering. Renders markdown and YAML project man
 ## Architecture
 
 - Server-side rendered HTML via template literal functions in `src/views/`
-- Routes in `src/routes/` read files from disk on every request (no caching)
+- Routes in `src/routes/` read files from disk on every request (no caching). The exception is program-backed synthesis v5 views (`synthesis doctor`, the context doctor): each run is time- and output-bounded and its result is kept for one minute (`src/cached-run.ts`) so a page load and the nav chip's poll share one run
 - Config loaded from `~/.synthesis/console.yaml` with auto-detection fallback
 - No client-side framework. Minimal JS for picker/filter interactions only.
 - Shared utilities (escapeHtml, escapeAttr, sanitizePathSegment) in `src/utils.ts`
@@ -48,6 +48,13 @@ src/
   config.ts        — Config loader, source schema, auto-detect, path helpers
   active-sources.ts — Cookie/query/default resolution of active sources per request
   utils.ts         — Shared escapeHtml, escapeAttr, sanitizePathSegment
+  v5.ts            — synthesis v5 locations (SYNTHESIS_HOME, default ~/.synthesis/v5) and the bounded Python script runner
+  skill-resolution.ts — v5 skill folders: the runtime's current/skills, then harness plugin caches (v5 roots only)
+  doctor.ts        — `synthesis doctor --json` runner and validation (/conformance)
+  context-integrity.ts — v5 context doctor per active source (/context)
+  autopilot.ts     — v5 autopilot run records and the plan-file reader (/autopilot)
+  sync.ts          — v5 repo-guard report, read-only scan and quiet-audio flag (/sync)
+  finite-command.ts — process-group custody for every program the Console runs
   routes/          — Route handlers (projects, initiatives, lessons, plans, people + prep). Each unions across active sources.
   parsers/         — YAML (projects + initiatives) and markdown parsing
   views/           — HTML template functions (layout has multi-select picker; initiative cards and detail views)
@@ -82,6 +89,8 @@ The `demo/` directory also serves as documentation-by-example of synthesis proje
 - `/people` — commitments view derived from the last 30 days of plans + prep packs across active sources (v0.13+)
 - `/prep/:source/:slug` — meeting-prep pack detail; slug = filename without .md from the source's `meeting-preps/` dir (v0.13+)
 - `/ledger` — newest catch-up ledger across active sources; `/ledger/:source/:date` for a specific sweep (v0.14+)
+- `/autopilot` — synthesis v5 autopilot runs bounded by the active sources; `/autopilot/run/:session` for one run
+- `/conformance`, `/context`, `/sync` — synthesis v5 doctor, context doctor and repo-guard views (not registered in demo mode)
 
 Query params:
 - `?sources=a,b` — override cookie for this session (useful for bookmarking)
