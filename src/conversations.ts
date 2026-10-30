@@ -74,6 +74,11 @@ export function escapeRegExp(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+/** The search pattern: the words matched literally, in a group, so it never starts with "-" and is never an option. */
+export function searchPattern(words: string): string {
+  return `(?:${escapeRegExp(words)})`;
+}
+
 export function parseLines<T>(stdout: string): T[] {
   const items: T[] = [];
   for (const line of stdout.split("\n")) {
@@ -97,11 +102,11 @@ function filters(filter: Filter): string[] {
   return args;
 }
 
-/** Run `synthesis sessions <args> --json`; a positional after `--` can never be read as an option. */
-async function run<T>(args: string[], positional: string[], maxOutputBytes: number, launcher = doctorLauncher()):
-  Promise<Outcome<T>> {
+/** Run `synthesis sessions <args> --json`. The caller puts any positional right after the action, where the CLI
+ * reads it; a session id is validated and a search pattern starts with "(", so neither can be read as an option. */
+async function run<T>(args: string[], maxOutputBytes: number, launcher = doctorLauncher()): Promise<Outcome<T>> {
   if (!existsSync(launcher)) return { installed: false, items: [], error: null };
-  const argv = ["sessions", ...args, "--json", ...(positional.length ? ["--", ...positional] : [])];
+  const argv = ["sessions", ...args, "--json"];
   const result = await finiteCommand(launcher, argv, { cwd: homedir(), timeoutMs: SESSIONS_TIMEOUT_MS, maxOutputBytes });
   if (result.kind !== "success") {
     return { installed: true, items: [], error: describeFailure(result, "synthesis sessions", SESSIONS_TIMEOUT_MS) };
@@ -114,18 +119,18 @@ async function run<T>(args: string[], positional: string[], maxOutputBytes: numb
 }
 
 export function listSessions(filter: Filter = {}, launcher?: string): Promise<Outcome<SessionMeta>> {
-  return run<SessionMeta>(["list", ...filters(filter)], [], LIST_BYTES, launcher);
+  return run<SessionMeta>(["list", ...filters(filter)], LIST_BYTES, launcher);
 }
 
 export function searchConversations(query: string, filter: Filter = {}, launcher?: string): Promise<Outcome<SessionRecord>> {
   const words = query.trim().slice(0, 200);
   if (!words) return Promise.resolve({ installed: true, items: [], error: null });
-  return run<SessionRecord>(["search", "--kinds", CONVERSATION_KINDS, ...filters(filter)], [escapeRegExp(words)],
+  return run<SessionRecord>(["search", searchPattern(words), "--kinds", CONVERSATION_KINDS, ...filters(filter)],
     LIST_BYTES, launcher);
 }
 
 export function showSession(id: string, full = false, launcher?: string): Promise<Outcome<SessionRecord>> {
   const session = validName(id);
   if (!session) return Promise.resolve({ installed: true, items: [], error: "That is not a session id." });
-  return run<SessionRecord>(["show", "--kinds", full ? FULL_KINDS : CONVERSATION_KINDS], [session], SHOW_BYTES, launcher);
+  return run<SessionRecord>(["show", session, "--kinds", full ? FULL_KINDS : CONVERSATION_KINDS], SHOW_BYTES, launcher);
 }

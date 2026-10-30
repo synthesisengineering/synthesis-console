@@ -43,8 +43,8 @@ describe("conversations", () => {
   test("search words are matched literally and can never be read as an option", async () => {
     const { launcher, argsFile } = fakeLauncher("");
     await searchConversations("--whole a.b", {}, launcher);
-    expect(read(argsFile)).toEqual(["sessions", "search", "--kinds", "user,brief,assistant,compaction", "--limit", "50",
-      "--json", "--", "--whole a\\.b"]);
+    expect(read(argsFile)).toEqual(["sessions", "search", "(?:--whole a\\.b)", "--kinds", "user,brief,assistant,compaction",
+      "--limit", "50", "--json"]);
   });
 
   test("a session id that is not one is refused without running anything", async () => {

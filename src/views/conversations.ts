@@ -40,8 +40,10 @@ function when(at?: string): string {
   return at ? escapeHtml(at.slice(0, 16).replace("T", " ")) : "";
 }
 
+/** The first 8 characters a citation uses; a Claude Code sub-agent's id adds its agent name to its parent's. */
 function short(id: string): string {
-  return escapeHtml(id.slice(0, 8));
+  const agent = id.match(/^(.{8}).*-(agent-[A-Za-z0-9]{1,8})/);
+  return escapeHtml(agent ? `${agent[1]} › ${agent[2]}` : id.slice(0, 8));
 }
 
 function body(record: SessionRecord, limit = 0): string {
