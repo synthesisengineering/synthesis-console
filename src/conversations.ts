@@ -1,5 +1,5 @@
 /**
- * Agent conversations, read through `synthesis sessions` (synthesis v5.3.0 and later): every harness's sessions
+ * Agent conversations, read through `synthesis sessions` (synthesis v5.3.1 and later): every harness's sessions
  * on this machine, and those other machines synced into each workspace's sessions repo. Read-only: the Console
  * runs the list, search and show commands, bounded in time and output, and never exports, syncs or writes.
  *

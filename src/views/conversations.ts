@@ -28,7 +28,7 @@ words are labeled <em>You</em>; a prompt one agent wrote for another is an <em>A
 stay in each machine's local archive (<code>synthesis sessions show &lt;session&gt; --whole</code>).</p>`;
 
 function notInstalled(): string {
-  return `<p role="alert">synthesis v5.3.0 or later is not installed for this account, so there are no
+  return `<p role="alert">synthesis v5.3.1 or later is not installed for this account, so there are no
 conversations to show. Install the synthesis-skills plugin in a harness and start a session there.</p>`;
 }
 
