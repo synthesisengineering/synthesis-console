@@ -85,11 +85,12 @@ function buildNav(currentPath: string, demoMode: boolean): string {
     { href: "/ledger", label: "Ledger", match: "/ledger" },
     { href: "/context", label: "Context", match: "/context" },
     { href: "/conformance", label: "Conformance", match: "/conformance" },
+    { href: "/conversations", label: "Conversations", match: "/conversations" },
     { href: "/lessons", label: "Lessons", match: "/lessons" },
   ];
 
   return links
-    .filter(link => !demoMode || !["/context", "/conformance"].includes(link.href))
+    .filter(link => !demoMode || !["/context", "/conformance", "/conversations"].includes(link.href))
     .map((link) => {
       const active = currentPath.startsWith(link.match) ? ' class="active" aria-current="page"' : "";
       return `<li><a href="${link.href}"${active}>${link.label}</a></li>`;

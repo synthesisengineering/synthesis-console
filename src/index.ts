@@ -11,6 +11,7 @@ import { ledgerRoutes } from "./routes/ledger.js";
 import { syncRoutes } from "./routes/sync.js";
 import { contextIntegrityRoutes } from "./routes/context-integrity.js";
 import { conformanceRoutes } from "./routes/conformance.js";
+import { conversationRoutes } from "./routes/conversations.js";
 import { autopilotRoutes } from "./routes/autopilot.js";
 import { layout } from "./views/layout.js";
 import { activeSources } from "./active-sources.js";
@@ -68,6 +69,7 @@ if (!config.demoMode) {
   app.route("/", syncRoutes(config));
   app.route("/", contextIntegrityRoutes(config));
   app.route("/", conformanceRoutes(config));
+  app.route("/", conversationRoutes(config));
 }
 
 app.notFound((c) => {

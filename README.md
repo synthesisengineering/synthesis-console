@@ -18,7 +18,7 @@ Synthesis engineering is a discipline for structured human-AI collaboration — 
 
 ## Synthesis v5 views
 
-Four views read the synthesis v5 system on this machine. v5 is installed by the
+Five views read the synthesis v5 system on this machine. v5 is installed by the
 [synthesis-skills](https://github.com/synthesisengineering/synthesis-skills)
 plugin in each harness (Claude Code, Codex, Muse); its runtime lives in
 `SYNTHESIS_HOME` (default `~/.synthesis/v5`). Skill scripts resolve from the
@@ -35,6 +35,7 @@ state, and none is reachable in demo mode.
 | **Context** (`/context`, `/api/context-status`) | synthesis-context-lifecycle's `context_doctor.py --root <knowledge root> --json`, once per active source whose projects live in a `projects/` folder: defects, warnings, coverage and every finding | Run on demand per source, bounded at 60 s, kept for a minute; **Run again** starts fresh runs |
 | **Autopilot** (`/autopilot`, `/api/autopilot`) | v5 run records in `$SYNTHESIS_HOME/state/autopilot/<session>.json` and the plan files they name: status, owner, next item, progress, open blockers and questions for the principal | Read on every request; `/autopilot/run/<session>` shows one run with its checklists and plan |
 | **Sync** (`/sync`, `/api/sync-status`) | synthesis-repo-guard's `repo_sync_check.py` report at `~/.synthesis/repo-guard/last-report.json`, plus the `~/.synthesis/quiet-audio` mute flag | A report older than five minutes starts one read-only scan; **Scan now** runs it on demand |
+| **Conversations** (`/conversations`, `/conversations/<session>`, `/api/conversations`) | `synthesis sessions list`, `search` and `show --json` (synthesis 5.3.0 or later): every Claude Code, Codex and Muse session on this machine and those other machines synced into each workspace's sessions repo. Your own words are labeled as yours, agent-written briefs as briefs; reasoning and tool calls on request; tool output stays in the local archive | Run on each page load, time- and output-bounded |
 
 Each view has a nav chip: green when healthy, amber or red when something needs a
 look, gray when the program is not installed. The source picker bounds the Context

@@ -51,6 +51,7 @@ src/
   v5.ts            — synthesis v5 locations (SYNTHESIS_HOME, default ~/.synthesis/v5) and the bounded Python script runner
   skill-resolution.ts — v5 skill folders: the runtime's current/skills, then harness plugin caches (v5 roots only)
   doctor.ts        — `synthesis doctor --json` runner and validation (/conformance)
+  conversations.ts — `synthesis sessions list|search|show --json` runner and validation (/conversations)
   context-integrity.ts — v5 context doctor per active source (/context)
   autopilot.ts     — v5 autopilot run records and the plan-file reader (/autopilot)
   sync.ts          — v5 repo-guard report, read-only scan and quiet-audio flag (/sync)
@@ -91,6 +92,7 @@ The `demo/` directory also serves as documentation-by-example of synthesis proje
 - `/ledger` — newest catch-up ledger across active sources; `/ledger/:source/:date` for a specific sweep (v0.14+)
 - `/autopilot` — synthesis v5 autopilot runs bounded by the active sources; `/autopilot/run/:session` for one run
 - `/conformance`, `/context`, `/sync` — synthesis v5 doctor, context doctor and repo-guard views (not registered in demo mode)
+- `/conversations`, `/conversations/:session` — agent conversations from `synthesis sessions --json`, read-only (not registered in demo mode)
 
 Query params:
 - `?sources=a,b` — override cookie for this session (useful for bookmarking)
