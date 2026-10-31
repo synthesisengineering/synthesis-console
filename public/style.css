@@ -1886,7 +1886,9 @@ a.list-row:hover,
 
 /* ---- Projects ---- */
 
-.status-tabs { margin-bottom: var(--sp-4); }
+.filters { margin-bottom: var(--sp-6); }
+.status-tabs { margin-bottom: 0; }
+.filter-summary { margin-top: var(--sp-3); }
 
 .project-group { margin-top: var(--sp-6); }
 .project-group:first-of-type { margin-top: 0; }

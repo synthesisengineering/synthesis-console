@@ -169,12 +169,17 @@ function renderFilters(
       : "";
 
   const activeFilterNotes: string[] = [];
+  if (sourceFilterCurrent.length) {
+    const names = sourceFilterCurrent.map((n) => sources.find((s) => s.name === n)?.display_name || n);
+    activeFilterNotes.push(`from ${names.map(escapeHtml).join(" or ")}`);
+  }
   if (current.q) activeFilterNotes.push(`matching “${escapeHtml(current.q)}”`);
   if (current.initiative) activeFilterNotes.push(current.initiative === "_ungrouped" ? "not in an initiative" : `in initiative ${escapeHtml(current.initiative)}`);
   if (current.client) activeFilterNotes.push(`for client ${escapeHtml(current.client)}`);
   if (selectedTags.length) activeFilterNotes.push(`tagged ${selectedTags.map(escapeHtml).join(" or ")}`);
-  const filterSummary = activeFilterNotes.length || selectedStatuses.length || sourceFilterCurrent.length
-    ? `<p class="section-note" role="status">Showing projects ${activeFilterNotes.join(", ") || "filtered"}. <a href="/projects">Clear all filters</a></p>`
+  const statusPart = selectedStatuses.length ? `${selectedStatuses.map(escapeHtml).join(" or ")} projects` : "projects";
+  const filterSummary = activeFilterNotes.length || selectedStatuses.length
+    ? `<p class="section-note filter-summary" role="status">Showing ${statusPart}${activeFilterNotes.length ? ` ${activeFilterNotes.join(", ")}` : ""}. <a href="/projects">Clear all filters</a></p>`
     : "";
 
   const sort = currentSort === "name" || currentSort === "status" ? currentSort : "recent";

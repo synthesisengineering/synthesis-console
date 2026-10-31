@@ -6,7 +6,7 @@ Local-first, open-source tooling for synthesis engineering. Renders your project
 
 Read the origin story: [Synthesis Console: open-source tooling for synthesis engineering](https://synthesiscoding.org/blog/2026/04/12/synthesis-console-open-source-tooling-for-synthesis-engineering/)
 
-![Synthesis Console](screenshots/dashboard.png)
+![Synthesis Console: the Today page](screenshots/today.png)
 
 ## What Is This?
 
@@ -15,6 +15,20 @@ If you practice synthesis engineering — managing projects through structured m
 Synthesis Console renders those files as a browsable console. Project list with status badges and tag filtering. Project detail with rendered markdown. Session history. Lessons learned. All from the files you already have, with no import step and no database.
 
 Synthesis engineering is a discipline for structured human-AI collaboration — like agile or Scrum, but for AI-native workflows. This console is one open-source implementation of the tooling layer. Others can build their own.
+
+## What 3.0 changes
+
+3.0 rebuilds the interface. The data model, URLs and API routes stay the same; every view now sits on one design system.
+
+- **Navigation.** A left sidebar groups the views: Today; Plan (daily plans, people, ledger); Work (projects, initiatives, lessons, conversations); System (autopilot, context, conformance, sync). Each System item carries a live status dot, with a count when something needs a look. Under 960 px wide the sidebar becomes a drawer.
+- **Today** (`/`). What needs you now: today's plan with its queue, decisions, tasks and drafts; system health; the projects most recently in motion; portfolio health; autopilot runs; recent conversations. Until the day-start ritual writes today's plan, the latest plan stands in, labeled as such.
+- **Command palette.** Cmd-K or `/` jumps to any section, project, initiative, lesson or recent plan, and searches projects, lessons and conversations. It reads `/api/palette`, which covers only the active sources.
+- **Light and dark themes** from one token set. The Console follows the system setting; a switch in the sidebar overrides it.
+- **Projects.** One toolbar line for search, sort, grouping, source and tags; status chips with counts; cards or a dense list, remembered per browser.
+- **Plan page.** One main column in working order (needs you, brief, today, must do, this week, drafts, prep packs, on your behalf, more) beside a context rail (calendar, portfolio, wins, waiting on, ledger). Every action stays: approve, edit, skip, send, copy, done. A recorded decision can be changed (`POST /plans/:source/:date/decision/:index/undo`). Field lines in plans and project records (`**Status:** …` followed by `**Mode:** …`) keep their own lines.
+- **Accessibility.** A skip link, named landmarks, visible focus rings, and status that always carries a word as well as a color. The browser test checks a laptop viewport and a phone viewport.
+
+The Console still makes no third-party requests: the stylesheet, the client script and the icons ship with it, and the vendored classless CSS framework is gone.
 
 ## Synthesis v5 views
 
@@ -37,8 +51,9 @@ state, and none is reachable in demo mode.
 | **Sync** (`/sync`, `/api/sync-status`) | synthesis-repo-guard's `repo_sync_check.py` report at `~/.synthesis/repo-guard/last-report.json`, plus the `~/.synthesis/quiet-audio` mute flag | A report older than five minutes starts one read-only scan; **Scan now** runs it on demand |
 | **Conversations** (`/conversations`, `/conversations/<session>`, `/api/conversations`) | `synthesis sessions list`, `search` and `show --json` (synthesis 5.3.1 or later): every Claude Code, Codex and Muse session on this machine and those other machines synced into each workspace's sessions repo. Your own words are labeled as yours, agent-written briefs as briefs; reasoning and tool calls on request; tool output stays in the local archive | Run on each page load, time- and output-bounded |
 
-Each view has a nav chip: green when healthy, amber or red when something needs a
-look, gray when the program is not installed. The source picker bounds the Context
+Each view's sidebar item carries a status dot: green when healthy, amber or red
+when something needs a look, gray when the program is not installed. The Today page
+shows the same four statuses as tiles. The source picker bounds the Context
 and Autopilot views: an inactive source is not audited, and a run in an inactive
 source is counted but not shown.
 
@@ -48,33 +63,47 @@ own plan edits.
 
 ## Screenshots
 
-**Project list** — grouped by initiative with status badges, search, and filter toggles:
+All screenshots come from demo mode (`bun run demo`).
 
-![Project list grouped by initiative with status badges and filters](screenshots/dashboard.png)
+**Today** — what needs you now: the plan's queue, system health, projects in motion:
 
-**Initiatives** — portfolio-level view across active sources (v0.3+):
+![Today page with the plan card, system health and recently active projects](screenshots/today.png)
 
-![Initiative cards showing portfolio status across sources](screenshots/initiatives.png)
+**Projects** — one toolbar line, status chips with counts, grouped by initiative:
 
-**Status filtering** — click status toggles to show specific groups:
+![Project list grouped by initiative with status chips and a one-line toolbar](screenshots/dashboard.png)
 
-![Filtered to active projects](screenshots/filtered.png)
+**Status filtering** — status chips narrow the list; grouping by status:
 
-**Project detail** — metadata sidebar with rendered CONTEXT.md and REFERENCE.md:
+![Projects filtered to active, grouped by status](screenshots/filtered.png)
+
+**Project detail** — the working memory (CONTEXT.md) beside a rail with the resume prompt, details and session logs:
 
 ![Project detail view](screenshots/project-detail.png)
 
-**Lessons** — cross-project lessons learned, date-sorted:
+**Initiatives** — portfolio health and member-project rollups across active sources:
+
+![Initiative cards with health and status rollups](screenshots/initiatives.png)
+
+**Lessons** — cross-project lessons by month, filtered as you type:
 
 ![Lessons list](screenshots/lessons.png)
 
-**Daily plans** — calendar navigation with today highlighted, click any date to view:
+**Daily plans** — a month calendar with plan days marked and the recent plans beside it:
 
 ![Daily plans calendar](screenshots/plans-calendar.png)
 
-**Plan detail** — rendered daily plan with Slack mention pills, channel pills, and a per-draft action bar (Copy + Open-in-Slack here on the demo source; Edit + Send-to-Slack appear on editable, token-configured sources):
+**Plan page** — the day at a glance, the one-tap queue and the brief in one column, the day's context in a rail:
 
-![Plan detail with mention pills and action bar](screenshots/plan-detail.png)
+![Plan page with the day's counts, needs-you queue and context rail](screenshots/plan-detail.png)
+
+**Ledger** — the catch-up sweep with its six commitment states:
+
+![Catch-up ledger with decay-state chips](screenshots/ledger.png)
+
+**People** — commitments and touchpoints, derived entirely from files:
+
+![People view with owed and owing commitments and next meetings](screenshots/people.png)
 
 ## What v1.0 adds — Cockpit Mode: the transaction cockpit
 
@@ -82,8 +111,8 @@ v1.0 completes the console's graduation from *plan viewer* to *transaction cockp
 
 **Five new plan-page surfaces**, rendered only when the plan carries the corresponding sections (legacy plans render exactly as before):
 
-- **Portfolio lane strip** — one chip per active initiative across ALL active sources, worst health first. Health is file-derived: explicit 🔴 / ⚠️ / ✅ markers in member projects' CONTEXT.md win; staleness of `last_session` contributes at most a warning (inference prompts a check-in; only an explicit assertion raises an alarm). There is no hand-curation UI — lanes are ritual-generated or they rot.
-- **BRIEF** — the ≤90-second morning narrative (`## 📰 Brief`), always visible below the day header.
+- **Portfolio lanes** — every active initiative across ALL active sources, worst health first (since 3.0, a list in the plan page's rail). Health is file-derived: explicit 🔴 / ⚠️ / ✅ markers in member projects' CONTEXT.md win; staleness of `last_session` contributes at most a warning (inference prompts a check-in; only an explicit assertion raises an alarm). There is no hand-curation UI — lanes are ritual-generated or they rot.
+- **BRIEF** — the ≤90-second morning narrative (`## 📰 Brief`), always visible near the top of the plan.
 - **NEEDS YOU** — the one-tap queue: a priority decision from `## ⚡ Decision needed` plus drafts and light decisions from `## ☑️ One-tap batch`, each as a compact card with **Approve / Edit / Skip**. Skip writes a `**Skipped:**` marker (undoable); Approve sends through the existing confirm-modal Slack flow, or Smart-Copies when no token is configured. Target: clear the queue in ≤10 minutes, twice a day.
 - **TODAY** — the day's time budget as a bar (committed vs buffer, with a warning state above the 70% guideline), the ritual-written `## 📅 Calendar`, and the ≤3 deep-work slots with window chips; a calendar event overlapping a slot's window flags ⚡ preemption — visualized, not mourned.
 - **TICKER** — the "On your behalf" digest (`## On your behalf`): every agent-sent action with time, target, and permalink. Trust through total visibility.
@@ -95,27 +124,13 @@ v1.0 completes the console's graduation from *plan viewer* to *transaction cockp
 
 **Plus:** meeting-prep packs — ritual-generated one-pagers at `meeting-preps/YYYY-MM-DD-HHMM-slug.md` (calendar × transcripts × project context × open commitments), listed as cards on the plan page and rendered at `/prep/:source/:slug`.
 
-**The v1.0 cockpit** — portfolio strip, budget bar, BRIEF, NEEDS YOU one-taps, TODAY slots with preemption flags, prep packs, TICKER (see the plan-detail screenshot above under Screenshots).
-
-**Ledger** — the six-state commitments reconciliation, rendered live:
-
-![Catch-up ledger with decay-state chips](screenshots/ledger.png)
-
-**People** — commitments and touchpoints, derived entirely from files:
-
-![People view with owed/owing commitments and next meetings](screenshots/people.png)
+See the plan page, Ledger and People screenshots above.
 
 Producer contracts for all of the above live in [`docs/cockpit-design.md`](docs/cockpit-design.md) and the synthesis-daily-rituals / synthesis-catchup-ledger skills — producer and consumer change together.
 
 ## What v0.9+ adds for daily plans
 
-The plan detail view becomes a **three-column cockpit**: calendar + active projects on the left, today's actionable work in the center, today's wins + waiting-on others on the right. Color through left-border accents on cards rather than oversized headings; compact rows; sent/done items collapse by default. At <1024px the columns collapse to a single column with sidebars rendered as `<details>` blocks above the main content.
-
-The previous single-column cockpit (v0.8) is the source for the typed sections; v0.9 reorganizes the rendering, not the underlying model. Existing CSS and JS handlers (decision pick, task checkbox, filter chips, find, mtime auto-refresh) work unchanged.
-
-- **Left sidebar** — mini month calendar with the current date highlighted and other dates that have plans linked; active projects list (filtered to active / ongoing / new / paused statuses) with color-coded status dots.
-- **Main column** — date header, progress bar (X / Y tasks done), counts strip (decisions / tasks / drafts / sent today), filter chips · find · Rollover · prev/next nav, then `MUST DO TODAY` (open decisions + P0 tasks promoted), `DO THIS WEEK` (P1 / P2 / watch / stale buckets), `DRAFTS` (active + sent cards from v0.8.5–v0.8.7), `MORE` collapsibles (briefing / standup / PR queue / sync state / other), and the Full markdown escape hatch.
-- **Right sidebar** — Today's Wins (done priority tasks + sent drafts + explicit `## Completed today` / `## Sent messages` sections, deduplicated), Waiting On (`## Waiting on others` sections).
+v0.9 introduced a three-column cockpit (calendar and projects, the day's work, wins and waiting-on). 3.0 replaced it with one main column beside a context rail; see [What 3.0 changes](#what-30-changes). The typed sections underneath are unchanged.
 
 ## What v0.8+ adds for daily plans
 
@@ -126,7 +141,7 @@ The plan detail view becomes a **cockpit**: a typed, sectioned rendering that su
 - **TODAY** region groups priority tasks by H3 bucket (e.g. "Do today — not negotiable" / "Stale targets"). Each task is a checkbox; clicking writes a strike-through + `✅ DONE HH:MM TZ` marker back to the file. Already-done tasks render in muted color with the timestamp visible.
 - **DRAFTS** region passes through to the existing v0.6 action bar (Copy / Edit / Open in Slack / Send-to-Slack) — no behavior change.
 - **Lower-row collapsibles** for briefing, standup, waiting-on, sent log, PR queue, sync state, and a "Full markdown" escape hatch that always shows the original render.
-- **Filter chips** for `All` / `Focus` (strips the page to NEEDS YOU + DRAFTS + first task bucket) and `Find` (in-page search that highlights matches across collapsed sections).
+- **View filters** — `Everything`, `Focus` (only what needs action: NEEDS YOU, TODAY, MUST DO TODAY and DRAFTS) and `Find` (in-page search that highlights matches across collapsed sections).
 - **Compare-and-swap discipline** for all writes — same atomic temp-file-plus-rename pattern as v0.5 / v0.6. If the file changed since the page loaded, the server returns 409 with a "reload and retry" message.
 - **Auto-refresh on file change (v0.8.4+)** — the page polls the file's mtime every 30 seconds and soft-reloads when the plan has been written by another actor (a daily-rituals run, slack-sync, or a manual edit in another editor). Reloads are skipped while you're mid-edit, the Send modal is open, or any text input has focus.
 - **Cross-day rollover view (v0.8.4+)** at `/plans/:source/rollover` — surfaces priority tasks that have appeared in multiple plans without being marked done. Click through any occurrence to that day's plan. Threshold chips (≥7 / ≥14 / ≥30 days) frame how aggressively the view filters.
@@ -366,7 +381,7 @@ Demo mode serves three audiences:
 2. **First-time users** — evaluate the tool immediately without setting up a workspace
 3. **The demo data itself** — serves as documentation-by-example of synthesis project management conventions
 
-A "DEMO" badge in the header makes it clear when you're viewing sample data.
+A Demo badge beside the Console's name, and a banner on the pages that list content, make it clear when you're viewing sample data.
 
 ## How It Works
 
@@ -375,6 +390,8 @@ A "DEMO" badge in the header makes it clear when you're viewing sample data.
 **Framework:** [Hono](https://hono.dev) — lightweight web framework (~14KB) that also runs on Node.js and Deno.
 
 **Rendering:** Server-side HTML via TypeScript template literal functions. No React, no Vue, no client-side framework, no build step.
+
+**Styling and script:** one stylesheet (`public/style.css`) with a single token set for light and dark, and one plain-JavaScript client script (`public/app.js`) using event delegation. No CSS framework, no icon font: icons are inline SVG.
 
 **Dependencies:** Three runtime packages total.
 
@@ -449,7 +466,7 @@ The skills create and maintain the files. The console renders them. Together the
 
 **Source scoping (v1.0.1+).** The source picker is the view scope for the whole app: content from deselected sources doesn't render anywhere — union lists AND source-scoped detail pages (`/plans/:source/:date`, `/projects/:source/:id`, `/prep/…`, `/ledger/…`). A direct URL or bookmark into a deselected source shows a "Source not active" page instead of the content. Selecting only the Demo source therefore makes every real source unreachable through the browser — safe for screen-sharing. For fully unattended demos, `bun run demo` remains the stronger, config-level isolation (real sources aren't even loaded).
 
-Synthesis Console binds explicitly to `127.0.0.1`. It reads your own files from your own filesystem. Stylesheets and demo assets are bundled, so ordinary local browsing works offline and makes no third-party asset requests. The Console has no telemetry. Configured Slack actions and synchronization may use network services; those are separate from viewing local files. The synthesis v5 programs the Console runs (the doctor, the context doctor and the repo scan) read local state; the doctor runs without its optional release check, which is the one that goes to the network. It does not call a model provider itself.
+Synthesis Console binds explicitly to `127.0.0.1`. It reads your own files from your own filesystem. The stylesheet, client script, icons and demo assets are bundled, so ordinary local browsing works offline and makes no third-party asset requests. The Console has no telemetry. Configured Slack actions and synchronization may use network services; those are separate from viewing local files. The synthesis v5 programs the Console runs (the doctor, the context doctor and the repo scan) read local state; the doctor runs without its optional release check, which is the one that goes to the network. It does not call a model provider itself.
 
 - **Path traversal:** URL parameters are sanitized to prevent directory traversal attacks
 - **XSS:** User-provided data is escaped in HTML output; interactive elements use event delegation instead of inline handlers
@@ -470,8 +487,10 @@ querying or changing a service. macOS uses user launchd; Linux and WSL require a
 actual systemd user manager. Native Windows remains explicitly unsupported by
 these owners. Receipt or filesystem disagreement preserves the existing files.
 
-The skip link, named navigation, explicit source Apply control and live run
-feedback support keyboard and assistive navigation without relying on color.
+The skip link, named navigation, the command palette (Cmd-K or `/`, arrow keys,
+Enter, Escape), the phone drawer (focus moves in, Escape returns it to the menu
+button), explicit source Apply control and live run feedback support keyboard and
+assistive navigation without relying on color.
 Source tests require a sandbox-capable Chromium path in `SYNTHESIS_TEST_CHROMIUM`
 (CI supplies one); a missing browser is a failure, never a silent skip. Browser
 acceptance uses synthetic local data, not participant studies.

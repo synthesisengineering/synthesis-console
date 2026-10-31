@@ -87,9 +87,13 @@
 
   function drawerOpen() { return app && app.getAttribute('data-sidebar') === 'open'; }
 
+  var mainColumn = document.querySelector('.app-main');
+
   function openDrawer() {
     if (!app) return;
     app.setAttribute('data-sidebar', 'open');
+    // The page behind the open drawer takes no focus or clicks.
+    if (mainColumn) mainColumn.inert = true;
     if (scrim) scrim.hidden = false;
     if (menuBtn) menuBtn.setAttribute('aria-expanded', 'true');
     var target = sidebar && (sidebar.querySelector('.nav-link[aria-current="page"]') || sidebar.querySelector('.nav-link'));
@@ -99,12 +103,18 @@
   function closeDrawer(returnFocus) {
     if (!app || !drawerOpen()) return;
     app.setAttribute('data-sidebar', 'closed');
+    if (mainColumn) mainColumn.inert = false;
     if (menuBtn) menuBtn.setAttribute('aria-expanded', 'false');
     setTimeout(function () { if (scrim && !drawerOpen()) scrim.hidden = true; }, 220);
     if (returnFocus && menuBtn) menuBtn.focus();
   }
 
   if (menuBtn) menuBtn.addEventListener('click', function () { drawerOpen() ? closeDrawer(true) : openDrawer(); });
+  if (window.matchMedia) {
+    var wide = window.matchMedia('(min-width: 961px)');
+    var onWide = function () { if (wide.matches) closeDrawer(false); };
+    if (wide.addEventListener) wide.addEventListener('change', onWide);
+  }
   if (scrim) scrim.addEventListener('click', function () { closeDrawer(true); });
   var closeBtn = document.querySelector('.sidebar-close');
   if (closeBtn) closeBtn.addEventListener('click', function () { closeDrawer(true); });

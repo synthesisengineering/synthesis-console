@@ -26,11 +26,12 @@ function validSession(value: string): boolean {
 }
 
 /**
- * Why a request may not read run records, or null when it may. Loopback
- * only: a rebinding page on another origin must not read run records. Shared
- * with the Today page, which lists open runs.
+ * Why a request may not read machine records, or null when it may. Loopback
+ * only: a rebinding page on another origin must not read run records or the
+ * palette's aggregate of the active sources. Shared with the Today page and
+ * the command palette's data route.
  */
-export function autopilotReadRefusal(c: Context): { error: string; status: 421 | 403 } | null {
+export function loopbackReadRefusal(c: Context): { error: string; status: 421 | 403 } | null {
   const url = new URL(c.req.url);
   const host = c.req.header("host");
   let hostname: string;
@@ -54,7 +55,7 @@ export function autopilotReadRefusal(c: Context): { error: string; status: 421 |
 export function autopilotRoutes(config: ConsoleConfig, stateDir = autopilotStateDir()) {
   const app = new Hono();
   const localRead: MiddlewareHandler = async (c, next) => {
-    const refusal = autopilotReadRefusal(c);
+    const refusal = loopbackReadRefusal(c);
     if (refusal) return c.json({ error: refusal.error }, refusal.status);
     await next();
     c.header("Cache-Control", "no-store");

@@ -105,6 +105,13 @@ describe("command palette data", () => {
     expect(JSON.stringify(body)).not.toContain("secret-client-work");
   });
 
+  test("refuses a request that did not come to the loopback host", async () => {
+    const f = fixture();
+    const res = await paletteRoutes(f.config).request("http://127.0.0.1:5555/api/palette", { headers: { host: "attacker.example:5555" } });
+    expect(res.status).toBe(421);
+    expect(JSON.stringify(await res.json())).not.toContain("personal-project");
+  });
+
   test("follows the request's source selection and the demo boundary", async () => {
     const f = fixture();
     const client = await (await paletteRoutes(f.config).request("http://127.0.0.1:5555/api/palette?sources=client")).json();

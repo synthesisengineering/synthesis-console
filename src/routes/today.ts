@@ -18,7 +18,7 @@ import { listLedgers, readLedger } from "../parsers/ledger.js";
 import { loadPlansFromSource } from "../parsers/entries.js";
 import { readAndRenderPlanForCockpit } from "../parsers/markdown.js";
 import { autopilotOverview, autopilotStateDir } from "../autopilot.js";
-import { autopilotReadRefusal } from "./autopilot.js";
+import { loopbackReadRefusal } from "./autopilot.js";
 import { summarizePlan } from "../views/cockpit/summary.js";
 import { todayView, type TodayPlan } from "../views/today.js";
 import { todayIso } from "../views/ui.js";
@@ -85,7 +85,7 @@ export function todayRoutes(config: ConsoleConfig, stateDir = autopilotStateDir(
 
     // Run records are machine state: never in demo mode, and only under the
     // autopilot routes' own loopback check.
-    const runs = config.demoMode || autopilotReadRefusal(c) ? null : autopilotOverview(stateDir, config.sources, active).runs;
+    const runs = config.demoMode || loopbackReadRefusal(c) ? null : autopilotOverview(stateDir, config.sources, active).runs;
     const demoActive = config.demoMode || active.some((s) => s.demo === true);
 
     const content = todayView({

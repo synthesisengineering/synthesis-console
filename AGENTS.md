@@ -7,14 +7,14 @@ Local dashboard for synthesis engineering. Renders markdown and YAML project man
 - **Runtime:** Bun
 - **Framework:** Hono (server-side rendering)
 - **Dependencies:** hono, js-yaml, markdown-it (three packages total)
-- **Styling:** Pico CSS (classless) + custom CSS for status and source badges
+- **Styling:** one design system in `public/style.css` (3.0): a single token set for light and dark via `light-dark()`, a classless baseline, then components and views. No CSS framework.
 
 ## Architecture
 
 - Server-side rendered HTML via template literal functions in `src/views/`
 - Routes in `src/routes/` read files from disk on every request (no caching). The exception is program-backed synthesis v5 views (`synthesis doctor`, the context doctor): each run is time- and output-bounded and its result is kept for one minute (`src/cached-run.ts`) so a page load and the nav chip's poll share one run
 - Config loaded from `~/.synthesis/console.yaml` with auto-detection fallback
-- No client-side framework. Minimal JS for picker/filter interactions only.
+- No client-side framework. `public/app.js` is the one client script (plain JavaScript, event delegation): theme, drawer, source picker, command palette, live status dots, drafts, one-tap queue and the plan page's decisions, tasks, find and refresh. Views add small inline scripts only for page-local behavior.
 - Shared utilities (escapeHtml, escapeAttr, sanitizePathSegment) in `src/utils.ts`
 - Version imported from package.json — no hardcoded version strings
 
@@ -56,11 +56,12 @@ src/
   autopilot.ts     — v5 autopilot run records and the plan-file reader (/autopilot)
   sync.ts          — v5 repo-guard report, read-only scan and quiet-audio flag (/sync)
   finite-command.ts — process-group custody for every program the Console runs
-  routes/          — Route handlers (projects, initiatives, lessons, plans, people + prep). Each unions across active sources.
-  parsers/         — YAML (projects + initiatives) and markdown parsing
-  views/           — HTML template functions (layout has multi-select picker; initiative cards and detail views)
+  routes/          — Route handlers (today, palette, projects, initiatives, lessons, plans, people + prep, ledger, v5 views). Each unions across active sources.
+  parsers/         — YAML (projects + initiatives), markdown, plan sections, drafts, dated entries (plans, lessons)
+  views/           — HTML template functions. layout.ts is the app shell (sidebar, top bar, picker); ui.ts holds the shared components (page header, badges, stat tiles, callouts, empty states); icons.ts the inline SVG icons; cockpit/ the plan page (shell, main column, rail, cards, summary)
 public/
-  style.css        — Custom styles (badges, source-badge, source-picker, layout, filters, demo banner)
+  style.css        — The design system: tokens, base, shell, components, views, responsive
+  app.js           — The client script (see Architecture)
 demo/
   ai-knowledge-demo/ — Bundled sample data for demo mode (new layout: top-level lessons/, daily-plans/)
 docs/
@@ -78,15 +79,17 @@ The `demo/` directory also serves as documentation-by-example of synthesis proje
 
 ## URL Structure
 
+- `/` — Today: today's plan (or the latest plan, labeled), system health, projects in motion, portfolio, autopilot runs, recent conversations
+- `/api/palette` — the command palette's data (projects, initiatives, lessons, recent plans) from the active sources only; loopback Host required
 - `/projects` — union across active sources; grouped by initiative by default when initiatives exist
 - `/projects/:source/:id` — project detail (source-scoped); shows initiative link when project has one
 - `/projects/:source/:id/sessions/:period` — session detail
 - `/initiatives` — initiative cards across active sources (v0.3+)
 - `/initiatives/:source/:id` — initiative detail: description, metadata, member projects, recent sessions
-- `/lessons` — union
+- `/lessons` — union by month (`?q=` filters by title)
 - `/lessons/:source/:slug` — lesson detail (source-scoped)
-- `/plans` — union (calendar picks first source per date; duplicates listed below)
-- `/plans/:source/:date` — plan detail (source-scoped)
+- `/plans` — month calendar (`?month=YYYY-MM`; defaults to this month when it has plans, else the newest plan's month); the calendar picks the first source per date and the rail lists dates with plans from several sources
+- `/plans/:source/:date` — plan detail (source-scoped); write-backs under it: `draft/:index` (PUT), `draft/:index/{send,skip,unskip}`, `decision/:index`, `decision/:index/undo`, `task/:index/{done,undone}` (POST), `mtime` (GET)
 - `/people` — commitments view derived from the last 30 days of plans + prep packs across active sources (v0.13+)
 - `/prep/:source/:slug` — meeting-prep pack detail; slug = filename without .md from the source's `meeting-preps/` dir (v0.13+)
 - `/ledger` — newest catch-up ledger across active sources; `/ledger/:source/:date` for a specific sweep (v0.14+)
@@ -111,7 +114,9 @@ Query params:
 
 ## Conventions
 
-- Views are pure functions: `(data) => string` returning HTML
+- Views are pure functions: `(data) => string` returning HTML, built from the shared components in `views/ui.ts` so every page uses one vocabulary (page header, badge tones ok/warn/bad/info/neutral, cards, stat tiles, callouts, empty states)
+- Color carries one meaning each (ok green, attention amber, problem red, info sky, neutral slate), and every status also carries a word
+- Class names and data attributes that `public/app.js` reads are a contract (`.draft-actions`, `.cockpit-decision`, `.cockpit-task`, `.cockpit-onetap-draft`, `.cockpit-view` data-*, the `sync-chip` / `context-chip` / `conformance-chip` ids); change them only together with the script
 - Routes read from disk, parse, pass to views, return response
 - All paths use `~/` expansion for portability across machines
 - No React, no JSX, no build step for content

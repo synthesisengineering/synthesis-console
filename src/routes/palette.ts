@@ -12,11 +12,15 @@ import { loadInitiativesFromSources, loadProjectsFromSources } from "../parsers/
 import { annotateRecency, sortProjects } from "../parsers/recency.js";
 import { loadLessonsFromSource, loadPlansFromSource } from "../parsers/entries.js";
 import { longDate, todayIso } from "../views/ui.js";
+import { loopbackReadRefusal } from "./autopilot.js";
 
 export function paletteRoutes(config: ConsoleConfig) {
   const app = new Hono();
 
   app.get("/api/palette", (c) => {
+    const refusal = loopbackReadRefusal(c);
+    if (refusal) return c.json({ ok: false, error: refusal.error }, refusal.status);
+    c.header("Cache-Control", "no-store");
     const active = activeSources(c, config);
     const label = (name: string) => {
       const src = findSource(config.sources, name);
