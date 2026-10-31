@@ -2079,6 +2079,7 @@ details.doc-card > summary {
   text-transform: uppercase;
 }
 details.doc-card[open] > summary { margin-bottom: var(--sp-4); border-bottom: 1px solid var(--border); }
+details.doc-card > summary .file-name { margin-left: auto; font-family: var(--mono); font-weight: 500; letter-spacing: 0; text-transform: none; }
 details.doc-card > summary::before,
 .disclosure > summary::before {
   content: "";
