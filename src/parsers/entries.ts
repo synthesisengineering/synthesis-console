@@ -3,7 +3,8 @@
  * `plans_dir`) and lessons (`YYYY-MM-DD-slug.md` under `lessons_dir`).
  * Shared by the list routes, the Today page and the command palette.
  */
-import { existsSync, readdirSync } from "fs";
+import { closeSync, existsSync, openSync, readSync, readdirSync } from "fs";
+import { join } from "path";
 import type { Source } from "../config.js";
 import { getLessonsPath, getPlansPath } from "../config.js";
 import type { PlanEntry } from "../views/plan.js";
@@ -43,6 +44,28 @@ export function parseLessonFilename(filename: string): Omit<LessonEntry, "source
   return { slug: filename.replace(".md", ""), filename, date, title };
 }
 
+/**
+ * A lesson's own title: its first H1, without a "Lesson:" or "Lessons
+ * learned:" prefix. Reads only the head of the file; the slug title is the
+ * fallback, so a file without an H1 still lists.
+ */
+export function lessonTitle(path: string, fallback: string): string {
+  try {
+    const fd = openSync(path, "r");
+    try {
+      const buf = Buffer.alloc(1024);
+      const n = readSync(fd, buf, 0, buf.length, 0);
+      const m = buf.subarray(0, n).toString("utf8").match(/^#\s+(.+?)\s*#*\s*$/m);
+      const title = m ? m[1].replace(/^(?:lessons?\s+learned|lesson)\s*[:—–-]\s*/i, "").trim() : "";
+      return title || fallback;
+    } finally {
+      closeSync(fd);
+    }
+  } catch {
+    return fallback;
+  }
+}
+
 /** A source's lessons, newest first. */
 export function loadLessonsFromSource(src: Source): LessonEntry[] {
   const dir = getLessonsPath(src);
@@ -50,7 +73,7 @@ export function loadLessonsFromSource(src: Source): LessonEntry[] {
   const out: LessonEntry[] = [];
   for (const f of readdirSync(dir).filter((f) => f.endsWith(".md")).sort().reverse()) {
     const entry = parseLessonFilename(f);
-    if (entry) out.push({ ...entry, source: src.name });
+    if (entry) out.push({ ...entry, title: lessonTitle(join(dir, f), entry.title), source: src.name });
   }
   return out;
 }

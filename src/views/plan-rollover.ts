@@ -41,12 +41,13 @@ export function planRolloverView(opts: RolloverViewOpts): string {
   const totalOpen = opts.tasks.filter((t) => t.currentlyOpen).length;
   const totalClosed = opts.tasks.length - totalOpen;
   const longest = opts.tasks.reduce((n, t) => Math.max(n, t.daysCarried), 0);
+  const days = (n: number) => `${n} day${n === 1 ? "" : "s"}`;
 
   const cards = opts.tasks.length === 0
     ? emptyState({
         icon: "checkCircle",
-        title: `Nothing carried ${opts.minDays}+ days`,
-        body: `No task has stayed open for ${opts.minDays} days or more within the last ${opts.windowDays} days. Tasks are shipping or being deliberately dropped; a shorter threshold shows newer carries.`,
+        title: `Nothing carried ${days(opts.minDays)} or more`,
+        body: `No task has stayed open for ${days(opts.minDays)} or more within the last ${opts.windowDays} days. Tasks are shipping or being deliberately dropped; a shorter threshold shows newer carries.`,
       })
     : opts.tasks.map((t) => renderCard(t, planLink)).join("\n");
 
@@ -55,13 +56,13 @@ export function planRolloverView(opts: RolloverViewOpts): string {
       ${pageHeader({
         title: "Carried tasks",
         eyebrowHtml: `${sourceBadge(display, opts.sourceName)}<span>As of ${escapeHtml(longDate(opts.asOfDate, true))}</span>`,
-        lead: `Priority tasks that stayed open across daily plans for ${opts.minDays} days or more, within the last ${opts.windowDays} days.`,
+        lead: `Priority tasks that stayed open across daily plans for ${days(opts.minDays)} or more, within the last ${opts.windowDays} days.`,
         actionsHtml: `<div class="segmented" role="group" aria-label="Threshold">${chips}</div>`,
       })}
       <div class="stats">
         ${statTile({ label: "Still open", value: totalOpen, tone: totalOpen ? "bad" : "ok", iconName: "repeat" })}
         ${statTile({ label: "Closed since", value: totalClosed, iconName: "checkCircle" })}
-        ${statTile({ label: "Longest carry", value: longest ? `${longest} days` : "—", iconName: "clock" })}
+        ${statTile({ label: "Longest carry", value: longest ? days(longest) : "—", iconName: "clock" })}
       </div>
       <section class="cockpit-region cockpit-region-today" aria-label="Carryover tasks">
         ${totalClosed && opts.tasks.length ? `<p class="section-note" style="margin-bottom:var(--sp-3)">${totalClosed} of these closed before today and stay listed for context.</p>` : ""}
@@ -85,7 +86,7 @@ function renderCard(t: RolloverTask, planLink: (date: string) => string): string
   return `
     <article class="cockpit-card" data-days-carried="${t.daysCarried}">
       <div class="cockpit-rollover-meta">
-        <span class="rollover-days">${t.daysCarried}<small>days carried</small></span>
+        <span class="rollover-days">${t.daysCarried}<small>day${t.daysCarried === 1 ? "" : "s"} carried</small></span>
         ${t.currentlyOpen ? badge("Open today", "bad") : badge("Closed", "ok")}
       </div>
       <h3 class="cockpit-decision-question" style="margin:8px 0 6px">${escapeHtml(t.exemplarText)}</h3>

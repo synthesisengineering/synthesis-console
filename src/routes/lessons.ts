@@ -3,7 +3,7 @@ import { join } from "path";
 import type { ConsoleConfig, Source } from "../config.js";
 import { getLessonsPath, findSource, displayName } from "../config.js";
 import { readAndRenderMarkdown } from "../parsers/markdown.js";
-import { loadLessonsFromSource, parseLessonFilename } from "../parsers/entries.js";
+import { lessonTitle, loadLessonsFromSource, parseLessonFilename } from "../parsers/entries.js";
 import { layout } from "../views/layout.js";
 import { sourceGateView, notFoundView } from "../views/source-gate.js";
 import { lessonListView, lessonDetailView } from "../views/lesson.js";
@@ -85,8 +85,8 @@ export function lessonRoutes(config: ConsoleConfig) {
 
     const parsed = parseLessonFilename(`${slug}.md`);
     const lesson: LessonEntry = parsed
-      ? { ...parsed, source: src.name }
-      : { slug, filename: `${slug}.md`, date: "", title: slug, source: src.name };
+      ? { ...parsed, title: lessonTitle(filePath, parsed.title), source: src.name }
+      : { slug, filename: `${slug}.md`, date: "", title: lessonTitle(filePath, slug), source: src.name };
 
     const content = lessonDetailView({ lesson, contentHtml, sourceLabel: displayName(src) });
 

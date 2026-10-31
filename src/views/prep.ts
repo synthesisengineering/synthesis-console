@@ -8,7 +8,7 @@
 import { escapeHtml } from "../utils.js";
 import type { PrepPackEntry } from "../parsers/prep-pack.js";
 import { icon } from "./icons.js";
-import { longDate, pageHeader, sourceBadge } from "./ui.js";
+import { longDate, pageHeader, sourceBadge, withoutLeadingTitle } from "./ui.js";
 
 export interface PrepViewOpts {
   entry: PrepPackEntry;
@@ -33,7 +33,7 @@ export function prepView(opts: PrepViewOpts): string {
         actionsHtml: `<a class="btn" href="${planHref}">${icon("calendar")}Plan for ${escapeHtml(longDate(entry.date))}</a>`,
       })}
       <article class="card doc-card">
-        <div class="rendered-markdown prep-body">${opts.contentHtml}</div>
+        <div class="rendered-markdown prep-body">${withoutLeadingTitle(opts.contentHtml, { fields: /^\s*<strong>(?:When|Who):<\/strong>/ })}</div>
       </article>
     </div>
   `;

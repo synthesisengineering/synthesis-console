@@ -178,3 +178,16 @@ export function shortDate(date: string): string {
 export function todayIso(now = new Date()): string {
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
 }
+
+/**
+ * Rendered markdown without its leading H1 (and, when asked, the field
+ * paragraph right after it), for pages whose header already shows them.
+ */
+export function withoutLeadingTitle(html: string, opts: { fields?: RegExp } = {}): string {
+  let out = html.replace(/^\s*<h1[^>]*>[\s\S]*?<\/h1>\s*/, "");
+  if (opts.fields) {
+    const m = out.match(/^\s*<p>([\s\S]*?)<\/p>\s*/);
+    if (m && opts.fields.test(m[1])) out = out.slice(m[0].length);
+  }
+  return out;
+}

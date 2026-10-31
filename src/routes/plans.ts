@@ -17,7 +17,7 @@ import { postSlackMessage } from "../integrations/slack-send.js";
 import { layout } from "../views/layout.js";
 import { sourceGateView, notFoundView } from "../views/source-gate.js";
 import { loadPlansFromSource } from "../parsers/entries.js";
-import { longDate } from "../views/ui.js";
+import { longDate, todayIso } from "../views/ui.js";
 import { planListView, planDetailView } from "../views/plan.js";
 import { planCockpitView } from "../views/plan-cockpit.js";
 import { planRolloverView } from "../views/plan-rollover.js";
@@ -96,10 +96,9 @@ export function planRoutes(config: ConsoleConfig) {
 
     const daysParam = c.req.query("days");
     const minDays = parseThreshold(daysParam, 7);
-    const tasks = findCarryoverTasks(plansDir, { minDays, windowDays: 60, openOnly: true });
-
-    const today = new Date();
-    const asOfDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+    // Sample data is frozen in time: a demo source is read as of its newest plan.
+    const asOfDate = src.demo ? (loadPlansFromSource(src)[0]?.date ?? todayIso()) : todayIso();
+    const tasks = findCarryoverTasks(plansDir, { minDays, windowDays: 60, openOnly: true, asOfDate });
 
     const content = planRolloverView({
       sourceName: src.name,

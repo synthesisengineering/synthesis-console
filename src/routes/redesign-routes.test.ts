@@ -47,7 +47,7 @@ function source(base: string, name: string, opts: { demo?: boolean; plans?: Reco
     join(root, "projects", "index.yaml"),
     `projects:\n${projects.map((id) => `  - id: ${id}\n    name: ${id} name\n    status: active\n    description: about ${id}\n    tags: [alpha]\n`).join("")}`
   );
-  writeFileSync(join(root, "lessons", `2026-01-02-${name}-lesson.md`), `# ${name} lesson\n`);
+  writeFileSync(join(root, "lessons", `2026-01-02-${name}-lesson.md`), `# Lesson: ${name[0].toUpperCase()}${name.slice(1)} lesson title\n\n**Date:** 2026-01-02\n`);
   for (const [date, body] of Object.entries(opts.plans ?? {})) writeFileSync(join(root, "daily-plans", `${date}.md`), body);
   return { name, root, projects_dir: "projects", lessons_dir: "lessons", plans_dir: "daily-plans", demo: opts.demo };
 }
@@ -100,7 +100,7 @@ describe("command palette data", () => {
     const body = await (await paletteRoutes(f.config).request("http://127.0.0.1:5555/api/palette")).json();
     expect(body.ok).toBe(true);
     expect(body.projects.map((p: { id: string }) => p.id)).toEqual(["personal-project"]);
-    expect(body.lessons.map((l: { title: string }) => l.title)).toEqual(["Personal Lesson"]);
+    expect(body.lessons.map((l: { title: string }) => l.title)).toEqual(["Personal lesson title"]);
     expect(body.todayPlan.href).toBe(`/plans/personal/${todayIso()}`);
     expect(JSON.stringify(body)).not.toContain("secret-client-work");
   });
@@ -168,8 +168,16 @@ describe("lessons", () => {
   test("?q= opens the list already filtered", async () => {
     const f = fixture(["personal", "client"]);
     const html = await (await lessonRoutes(f.config).request("http://127.0.0.1:5555/lessons?q=client")).text();
-    expect(html).toContain("Client Lesson");
-    expect(html).not.toContain("Personal Lesson");
+    expect(html).toContain("Client lesson title");
+    expect(html).not.toContain("Personal lesson title");
     expect(html).toContain("1 of 2 lessons");
+  });
+
+  test("a lesson page takes its title from the file and does not repeat it", async () => {
+    const f = fixture();
+    const html = await (await lessonRoutes(f.config).request("http://127.0.0.1:5555/lessons/personal/2026-01-02-personal-lesson")).text();
+    expect(html).toContain('<h1 class="page-title">Personal lesson title</h1>');
+    expect(html).not.toContain("<h1>Lesson: Personal lesson title</h1>");
+    expect(html).not.toContain("<strong>Date:</strong>");
   });
 });

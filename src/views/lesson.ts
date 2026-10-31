@@ -1,7 +1,7 @@
 import type { Source } from "../config.js";
 import { escapeHtml, escapeAttr } from "../utils.js";
 import { icon } from "./icons.js";
-import { emptyState, longDate, pageHeader, sourceBadge } from "./ui.js";
+import { emptyState, longDate, pageHeader, sourceBadge, withoutLeadingTitle } from "./ui.js";
 
 export interface LessonEntry {
   slug: string;
@@ -130,7 +130,7 @@ export function lessonDetailView(opts: {
       })}
       <article class="card doc-card">
         <div class="rendered-markdown">
-          ${opts.contentHtml}
+          ${withoutLeadingTitle(opts.contentHtml, { fields: /^\s*<strong>Date:<\/strong>[^<]*$/ })}
         </div>
       </article>
     </div>
