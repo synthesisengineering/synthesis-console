@@ -372,8 +372,8 @@ def test_bundled_demo_serves_from_unrelated_directory(distribution, tmp_path, mo
         for relative in [
             "/projects",
             "/style.css",
+            "/app.js",
             "/favicon.svg",
-            "/vendor/pico-2.1.1.min.css",
         ]:
             with urllib.request.urlopen(
                 "http://127.0.0.1:" + match[1] + relative, timeout=5

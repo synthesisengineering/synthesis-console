@@ -43,15 +43,22 @@ The cockpit's design unit is **the atomic content type**: each section type gets
 
 ## What the cockpit shows
 
-Region order is fixed:
+Since 3.0 the plan page is one main column beside a context rail. Region order in the main column is fixed, in the order the principal works the day:
 
-1. **Glance bar** — date, day of week, status line, last-modified timestamp, filter chips, and counts (decisions / tasks / drafts / sent today).
-2. **NEEDS YOU** — open decisions. Each card shows the question and options as buttons. Click an option and the cockpit writes a `**Decided:**` marker to the file.
-3. **TODAY** — priority tasks. H3 buckets become collapsible groups; the first bucket is open by default. Each task is a checkbox. Clicking strikes through the task title and appends a `✅ DONE HH:MM TZ` marker.
-4. **DRAFTS** — drafts ready to send. The action bar from the existing draft handling is reused verbatim (Copy / Edit / Open in Slack / Send-via-API).
-5. **Lower-row collapsibles** — everything else (briefing / standup / waiting-on / sent log / PR queue / sync state). Each is a `<details>` element, default-collapsed. A "Full markdown" collapsible at the bottom always shows the unmodified markdown render as a fallback.
+1. **Header and the day at a glance** — the weekday and date, the source, last-modified time, prev/next plan, Rollover, then five counts (needs you, decisions open, tasks done with a progress bar, drafts to review, sent today) and the view filters. The plan's header lines (status, budget, mode: everything before the first H2) render with each line kept on its own line.
+2. **NEEDS YOU** — the Cockpit Mode queue: `## ⚡ Decision needed` and `## ☑️ One-tap batch` items, with Approve / Edit / Skip on drafts and option buttons on decisions. Clicking an option writes a `**Decided:**` marker; a decided card offers **Change decision**, which removes the marker so the options are choosable again.
+3. **BRIEF** — the 90-second morning narrative.
+4. **TODAY** — the time budget bar, the ritual-written calendar and the deep-work slots with window chips and preemption flags.
+5. **MUST DO TODAY** — legacy `Decisions needed` cards and P0 task buckets. Each task is a checkbox; checking it strikes the title and appends a `✅ DONE HH:MM TZ` marker.
+6. **THIS WEEK** — P1 / P2 / watch / stale / other task buckets; the first is open by default.
+7. **DRAFTS** — drafts ready to send, with the existing action bar (Copy / Edit / Open in Slack / Send via API); sent drafts collapse to one line.
+8. **PREP PACKS** — one card per meeting-prep pack for the plan's date.
+9. **ON YOUR BEHALF** — the Tier-A ticker, collapsed.
+10. **MORE** — briefing / standup / PR queue / sync state / other as collapsibles, and a "Full markdown" collapsible that always shows the unmodified render.
 
-A `Focus` filter chip strips the page to NEEDS YOU + DRAFTS + first task bucket. An in-page find highlights matches across collapsed sections.
+The rail holds the day's context: a mini calendar of the month, portfolio lanes (worst health first, health named in words), today's wins, waiting on, and the newest ledger digest. It can be hidden (remembered per browser); under 960 px it stacks below the main column.
+
+`Focus` shows only what needs action: NEEDS YOU, TODAY, MUST DO TODAY and DRAFTS (the brief, this week, prep packs, the ticker, more, the header lines and the rail are hidden). `Find` searches the plan, including collapsed sections, and opens what it matches.
 
 ---
 
@@ -104,7 +111,7 @@ Drafts inside `decision-needed` or `one-tap-batch` H2s render **only** in NEEDS 
 
 - `/ledger` renders the newest catch-up ledger across active sources; `/ledger/:source/:date` renders a specific sweep. Ledger files are produced by the synthesis-catchup-ledger skill at `<ledgers_dir>/YYYY-MM-DD.md` (auto-detected as `catchup-ledgers/`). The console classifies H2 sections by heading keywords ("Do now" → actionable, "Verify before re-adding" → delegated, "Done late", "Expired", "Released") and reads per-row state from a `State` table column when present (Do-now tables mix ACTIONABLE and DECAYING). Open-state sections render expanded; closed groups (done-late / expired / released) render collapsed — credit and lessons one click away, not competing with live work.
 - Rows whose text reads as recognition (kudos / thanks / congrats) get a `recognition` tag chip so the consolidated-send decay pattern is visible at a glance. The tag is presentation only — sending still happens through drafts in the daily plan, which already carry the send machinery.
-- The cockpit's left sidebar shows a one-row ledger digest (date + open count + decaying count) linking to the sweep, whenever the plan's source has ledgers.
+- The plan page's rail shows a one-row ledger digest (date + open count + decaying count) linking to the sweep, whenever the plan's source has ledgers.
 
 
 If you write a plan with section names not in this table, those sections still display — they just live in the catch-all "Other" collapsible at the bottom. They are never hidden or dropped.
@@ -176,7 +183,7 @@ Already-done tasks render with strike-through and muted color but stay visible �
 
 ## Write-back to the plan file
 
-The cockpit writes back to your plan file via two compare-and-swap mutation types:
+The cockpit writes back to your plan file via compare-and-swap mutations:
 
 **Recording a decision** inserts a single line right after the H3 of the decision:
 
@@ -185,6 +192,8 @@ The cockpit writes back to your plan file via two compare-and-swap mutation type
 ```
 
 The original options stay in the file, so the audit trail shows the question, all considered options, and what was chosen.
+
+**Changing a decision (3.0+)** removes that `**Decided:**` line (and the blank line written after it) so the decision can be made again: `POST /plans/:source/:date/decision/:index/undo` with `{"option": "<the decided letter>"}`. The option is the compare-and-swap fingerprint: if the file shows a different choice, or none, the server returns 409. Decisions get superseded in the meetings they concern; changing one is a normal step, not an edge case.
 
 **Marking a task done** rewrites the list-item line in place:
 
@@ -329,43 +338,44 @@ Unrecognized H2 headings (3 distinct):
 
 Stable catch-alls like `Session Metrics` and `Background Agent Demo` are intentional and stay in `other`. New stragglers are the drift signal worth investigating.
 
-## Three-column shell (v0.9.0+)
+## Plan page layout (3.0+)
 
-v0.9 reorganizes the cockpit into three columns at desktop widths:
+3.0 replaced the v0.9 three-column shell with one main column beside a context rail:
 
 ```
-┌──────────┬──────────────────────────────────┬────────────────────┐
-│ ~220px   │ MAIN COLUMN (1fr, ~880px @ 1320) │ ~270px             │
-│          │                                  │                    │
-│ Calendar │ - Date header + status           │ Today's Wins       │
-│ (mini    │ - Progress bar                   │ (done tasks +      │
-│  month)  │ - Counts · chips · find · nav    │  sent drafts +     │
-│          │ - MUST DO TODAY (decisions + P0) │  explicit          │
-│ Active   │ - DO THIS WEEK (P1/P2/watch/...) │  completed/sent)   │
-│ Projects │ - DRAFTS (active + sent cards)   │                    │
-│ list     │ - MORE collapsibles              │ Waiting On         │
-│          │ - Full markdown                  │ (waiting kind)     │
-└──────────┴──────────────────────────────────┴────────────────────┘
+┌──────────────────────────────────────────────┬───────────────────┐
+│ Header · the day at a glance · view filters  │                   │
+├──────────────────────────────────────────────┤ ~300px rail       │
+│ MAIN COLUMN                                  │                   │
+│ - Header lines (status, budget, mode)        │ Calendar (month)  │
+│ - NEEDS YOU                                  │ Portfolio lanes   │
+│ - BRIEF                                      │ Today's wins      │
+│ - TODAY (budget, calendar, slots)            │ Waiting on        │
+│ - MUST DO TODAY · THIS WEEK                  │ Ledger digest     │
+│ - DRAFTS · PREP PACKS · ON YOUR BEHALF       │                   │
+│ - MORE · Full markdown                       │                   │
+└──────────────────────────────────────────────┴───────────────────┘
 ```
 
-The center column is the action surface — high-frequency reads. Sidebars hold low-frequency reference (calendar/projects on the left, status/done items on the right). Color through left-border accents on cards rather than heading sizes.
+The main column is the action surface; the rail holds low-frequency context. Color is reserved for status and the primary action.
 
-**Information sources for sidebars:**
+**Information sources for the rail:**
 
-- **Mini calendar** — month containing the current date, with dates that have plans linked. Renders for any source with a `plans_dir` declared.
-- **Active projects** — the source's projects (`projects/index.yaml`), filtered to `active`, `ongoing`, `new`, or `paused` status. Empty when the source has no projects index.
-- **Today's Wins** — done priority tasks + sent drafts + explicit `## Completed today` / `## Sent messages` sections, deduplicated, capped at 12.
-- **Waiting On** — `## Waiting on others` sections, capped at 12.
+- **Calendar** — the month containing the plan's date; days with plans link to them.
+- **Portfolio** — initiative lanes across the active sources (demo and real sources never mix), from `computePortfolioLanes`.
+- **Today's wins** — done priority tasks + sent drafts + explicit `## Completed today` / `## Sent messages` sections, deduplicated, capped at 12.
+- **Waiting on** — `## Waiting on others` sections, capped at 12.
+- **Ledger** — the newest catch-up ledger of the plan's source.
 
-**Mobile collapse.** Below 1024px the three columns collapse to one. Sidebars render as `<details>` blocks above the main content — `open` by default, user-collapsible. CSS forces them open at desktop widths via `summary { display: none }` on the same elements, so the server emits one HTML tree and CSS adapts. No JS state, no broken `Cmd+F` (the existing find handler already opens ancestor `<details>` for matched content).
+The v0.9 left sidebar's active-projects list was dropped: the Today page and Projects cover it.
 
-**Other pages unaffected.** The three-column shell applies only to `/plans/:source/:date` via the layout shell's new `wide` flag. `/projects`, `/initiatives`, `/lessons`, `/plans` calendar list keep their existing single-column layout.
+**Narrow screens.** Under 960 px the rail stacks below the main column and the app's sidebar becomes a drawer. One HTML tree; CSS adapts.
 
 ## What the cockpit doesn't do
 
 By design:
 
-- **Mobile-optimized layout.** The cockpit collapses to single column at narrow widths but the design target is desktop. A mobile cockpit is a future phase.
+- **A separate mobile app.** The plan page works at phone width (one column, compact counts, the rail below), from the same HTML.
 - **Search across plans.** The in-page find searches within the current plan only.
 - **Calendar enrichment.** The `/plans` calendar list view is unchanged. Per-day counts on calendar cells are a future polish.
 

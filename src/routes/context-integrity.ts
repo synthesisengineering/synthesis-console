@@ -23,7 +23,7 @@ export function contextIntegrityRoutes(config: ConsoleConfig, read: ContextStatu
     const status = await read(active);
     return c.html(
       layout({
-        title: "Context Integrity",
+        title: "Context integrity",
         content: contextIntegrityView(status),
         sources: config.sources,
         activeSourceNames: active.map((s) => s.name),

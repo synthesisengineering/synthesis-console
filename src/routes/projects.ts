@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { existsSync, readdirSync } from "fs";
 import { join } from "path";
 import type { ConsoleConfig } from "../config.js";
-import { getProjectPath, findSource } from "../config.js";
+import { getProjectPath, findSource, displayName } from "../config.js";
 import {
   loadProjectsFromSources,
   loadInitiativesFromSources,
@@ -13,10 +13,11 @@ import {
 import type { ProjectWithSource, InitiativeWithSource } from "../parsers/yaml.js";
 import { readAndRenderMarkdown } from "../parsers/markdown.js";
 import { layout } from "../views/layout.js";
-import { sourceGateView } from "../views/source-gate.js";
+import { sourceGateView, notFoundView } from "../views/source-gate.js";
 import { projectListView } from "../views/project-list.js";
 import { projectDetailView } from "../views/project-detail.js";
 import { sessionDetailView } from "../views/session.js";
+import { periodLabel } from "../views/project-detail.js";
 import { escapeHtml, sanitizePathSegment } from "../utils.js";
 import { activeSources, isSourceActive } from "../active-sources.js";
 import { annotateRecency } from "../parsers/recency.js";
@@ -45,6 +46,11 @@ export function projectRoutes(config: ConsoleConfig) {
     const displayed = hasFilters ? filterProjects(projects, filters) : projects;
     annotateRecency(displayed, config.sources);
 
+    // Each status chip counts what it would show with every other filter kept.
+    const statusBase = filterProjects(projects, { ...filters, status: undefined });
+    const statusCounts: Record<string, number> = {};
+    for (const p of statusBase) statusCounts[p.status] = (statusCounts[p.status] || 0) + 1;
+
     const sortMode = c.req.query("sort");
     const resumeSkillInstalled =
       resolveSkillFile("synthesis-project-resume", "SKILL.md") !== null;
@@ -66,6 +72,8 @@ export function projectRoutes(config: ConsoleConfig) {
       initiatives,
       groupByInitiative,
       resumeSkillInstalled,
+      statusCounts,
+      totalProjects: statusBase.length,
     });
 
     return c.html(
@@ -165,6 +173,7 @@ export function projectRoutes(config: ConsoleConfig) {
       referenceHtml,
       sessions,
       sourceName: src.name,
+      sourceLabel: displayName(src),
       initiative,
       relatedResolutions,
       resumeSkillInstalled:
@@ -180,6 +189,11 @@ export function projectRoutes(config: ConsoleConfig) {
         activeSourceNames: active.map((s) => s.name),
         currentPath: `/projects/${src.name}/${projectId}`,
         demoMode: config.demoMode,
+        crumbs: [
+          { label: "Projects", href: "/projects" },
+          { label: displayName(src), href: `/projects?source=${encodeURIComponent(src.name)}` },
+          { label: project.name },
+        ],
       })
     );
   });
@@ -229,6 +243,7 @@ export function projectRoutes(config: ConsoleConfig) {
       period,
       contentHtml,
       sourceName: src.name,
+      sourceLabel: displayName(src),
     });
 
     return c.html(
@@ -239,6 +254,11 @@ export function projectRoutes(config: ConsoleConfig) {
         activeSourceNames: active.map((s) => s.name),
         currentPath: `/projects/${src.name}/${projectId}/sessions`,
         demoMode: config.demoMode,
+        crumbs: [
+          { label: "Projects", href: "/projects" },
+          { label: project.name, href: `/projects/${encodeURIComponent(src.name)}/${encodeURIComponent(projectId)}` },
+          { label: `Session log · ${periodLabel(period)}` },
+        ],
       })
     );
   });
@@ -254,8 +274,8 @@ function notFound(
 ) {
   return c.html(
     layout({
-      title: "Not Found",
-      content: `<h1>Not found</h1><p>${message}</p><p><a href="/projects">Back to projects</a></p>`,
+      title: "Not found",
+      content: notFoundView({ messageHtml: message, backHref: "/projects", backLabel: "Back to projects" }),
       sources: config.sources,
       activeSourceNames: active.map((s) => s.name),
       currentPath: "/projects",

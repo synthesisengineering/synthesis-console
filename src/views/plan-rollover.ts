@@ -1,30 +1,19 @@
 /**
  * Rollover view — tasks carried across multiple daily plans.
  *
- * Renders a sortable list of priority tasks that have appeared in multiple
- * plans without being marked done. Pulls from `findCarryoverTasks()` in the
- * plan-rollover parser.
+ * Lists priority tasks that have appeared in several plans without being
+ * marked done, from `findCarryoverTasks()` in the plan-rollover parser:
+ * threshold chips (7 / 14 / 30 days, query-param links, no JS state), then
+ * one card per task with its days carried, first and last open dates and
+ * every plan it appeared in.
  *
- * Layout:
- *   - Header with breadcrumb and the source / threshold context
- *   - Threshold chips (7 / 14 / 30 days) — query-param links, no JS state
- *   - Card per task: exemplar text, days-carried badge, first-seen date,
- *     count of appearances, and a sparkline-style list of occurrence dates
- *     (each linked to its plan)
- *
- * Empty-state messaging communicates that empty == healthy: nothing has been
- * carried more than the threshold, which usually means tasks are either
- * shipping or being explicitly de-prioritized within the window.
+ * An empty list is a healthy one: nothing has been carried past the
+ * threshold, so tasks are shipping or being deliberately dropped.
  */
 import type { RolloverTask } from "../parsers/plan-rollover.js";
 import { escapeHtml, escapeAttr } from "../utils.js";
-
-const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-
-function dayOfWeek(date: string): string {
-  const [y, m, d] = date.split("-").map(Number);
-  return DAYS[new Date(y, m - 1, d).getDay()];
-}
+import { icon } from "./icons.js";
+import { badge, emptyState, longDate, pageHeader, sourceBadge, statTile } from "./ui.js";
 
 export interface RolloverViewOpts {
   sourceName: string;
@@ -44,84 +33,42 @@ export function planRolloverView(opts: RolloverViewOpts): string {
 
   const chips = opts.thresholdOptions
     .map((n) => {
-      const active = n === opts.minDays ? " cockpit-filter-active" : "";
-      const url = `?days=${n}`;
-      return `<a class="cockpit-filter-chip${active}" href="${escapeAttr(url)}" rel="nofollow">≥ ${n} days</a>`;
+      const active = n === opts.minDays;
+      return `<a class="${active ? "active" : ""}" href="${escapeAttr(`?days=${n}`)}" rel="nofollow"${active ? ' aria-current="page"' : ""}>${n}+ days</a>`;
     })
     .join("\n");
 
   const totalOpen = opts.tasks.filter((t) => t.currentlyOpen).length;
   const totalClosed = opts.tasks.length - totalOpen;
-
-  const summary = `
-    <div class="cockpit-glance" role="region" aria-label="Rollover summary">
-      <div class="cockpit-glance-title">
-        <strong>Tasks carried ≥ ${opts.minDays} days</strong>
-        <span class="cockpit-glance-age">As of ${escapeHtml(opts.asOfDate)} (${escapeHtml(dayOfWeek(opts.asOfDate))})</span>
-      </div>
-      <div class="cockpit-glance-counts">
-        ${renderCount("Carrying", totalOpen, totalOpen, "critical")}
-        ${renderCount("Window", opts.windowDays, opts.windowDays, "context")}
-      </div>
-      <div class="cockpit-glance-tools">
-        <div class="cockpit-filter-chips" role="group" aria-label="Threshold">
-          ${chips}
-        </div>
-      </div>
-    </div>
-  `;
+  const longest = opts.tasks.reduce((n, t) => Math.max(n, t.daysCarried), 0);
+  const days = (n: number) => `${n} day${n === 1 ? "" : "s"}`;
 
   const cards = opts.tasks.length === 0
-    ? renderEmpty(opts)
+    ? emptyState({
+        icon: "checkCircle",
+        title: `Nothing carried ${days(opts.minDays)} or more`,
+        body: `No task has stayed open for ${days(opts.minDays)} or more within the last ${opts.windowDays} days. Tasks are shipping or being deliberately dropped; a shorter threshold shows newer carries.`,
+      })
     : opts.tasks.map((t) => renderCard(t, planLink)).join("\n");
-
-  const closedNote = opts.tasks.length === 0 || totalClosed === 0
-    ? ""
-    : `<p class="cockpit-region-empty-msg" style="text-align:left">${totalClosed} of these closed before today and remain in this view for context — toggle the threshold or scope as needed.</p>`;
 
   return `
     <div class="cockpit-view cockpit-rollover" data-source="${escapeAttr(opts.sourceName)}">
-      <nav aria-label="breadcrumb" class="cockpit-breadcrumb">
-        <ul>
-          <li><a href="/plans">Daily Plans</a></li>
-          <li><span class="source-badge">${escapeHtml(display)}</span></li>
-          <li>Rollover (≥ ${opts.minDays} days)</li>
-        </ul>
-      </nav>
-
-      ${summary}
-
+      ${pageHeader({
+        title: "Carried tasks",
+        eyebrowHtml: `${sourceBadge(display, opts.sourceName)}<span>As of ${escapeHtml(longDate(opts.asOfDate, true))}</span>`,
+        lead: `Priority tasks that stayed open across daily plans for ${days(opts.minDays)} or more, within the last ${opts.windowDays} days.`,
+        actionsHtml: `<div class="segmented" role="group" aria-label="Threshold">${chips}</div>`,
+      })}
+      <div class="stats">
+        ${statTile({ label: "Still open", value: totalOpen, tone: totalOpen ? "bad" : "ok", iconName: "repeat" })}
+        ${statTile({ label: "Closed since", value: totalClosed, iconName: "checkCircle" })}
+        ${statTile({ label: "Longest carry", value: longest ? days(longest) : "—", iconName: "clock" })}
+      </div>
       <section class="cockpit-region cockpit-region-today" aria-label="Carryover tasks">
-        <h2 class="cockpit-region-title">CARRYING
-          <span class="cockpit-region-count">${opts.tasks.length} task${opts.tasks.length === 1 ? "" : "s"}</span>
-        </h2>
-        ${closedNote}
-        ${cards}
+        ${totalClosed && opts.tasks.length ? `<p class="section-note" style="margin-bottom:var(--sp-3)">${totalClosed} of these closed before today and stay listed for context.</p>` : ""}
+        <div class="stack-sm">${cards}</div>
       </section>
     </div>
-  `;
-}
-
-function renderCount(label: string, openCount: number, total: number, tone: string): string {
-  const display = total === 0 ? "0" : openCount === total ? `${total}` : `${openCount} / ${total}`;
-  return `
-    <span class="cockpit-count cockpit-count-${tone}" data-tone="${tone}">
-      <span class="cockpit-count-num">${escapeHtml(display)}</span>
-      <span class="cockpit-count-label">${escapeHtml(label)}</span>
-    </span>
-  `;
-}
-
-function renderEmpty(opts: RolloverViewOpts): string {
-  return `
-    <article class="cockpit-card cockpit-decision-ask">
-      <p class="cockpit-region-empty-msg">
-        No tasks have been carrying for ≥ ${opts.minDays} days within the last
-        ${opts.windowDays} days. Either tasks are shipping, getting explicitly
-        de-prioritized, or the window is too narrow — try a smaller threshold
-        above.
-      </p>
-    </article>
   `;
 }
 
@@ -132,33 +79,24 @@ function renderCard(t: RolloverTask, planLink: (date: string) => string): string
       const title = o.done
         ? `Marked done${o.doneTimestamp ? " at " + o.doneTimestamp : ""}`
         : "Open on this day";
-      return `<a class="${cls}" href="${escapeAttr(planLink(o.date))}" title="${escapeAttr(title)}">${escapeHtml(o.date)}</a>`;
+      return `<a class="${cls}" href="${escapeAttr(planLink(o.date))}" title="${escapeAttr(title)}">${escapeHtml(o.date.slice(5))}</a>`;
     })
     .join(" ");
 
-  const stateBadge = t.currentlyOpen
-    ? `<span class="cockpit-decision-rec-badge" style="background:var(--cockpit-critical);color:#fff">Open today</span>`
-    : `<span class="cockpit-decision-rec-badge">Closed</span>`;
-
-  const tone = t.currentlyOpen ? "cockpit-bucket-critical" : "cockpit-bucket-other";
-
   return `
-    <article class="cockpit-card cockpit-decision ${tone}" data-days-carried="${t.daysCarried}">
+    <article class="cockpit-card" data-days-carried="${t.daysCarried}">
       <div class="cockpit-rollover-meta">
-        <span class="cockpit-count cockpit-count-critical">
-          <span class="cockpit-count-num">${t.daysCarried}</span>
-          <span class="cockpit-count-label">days carried</span>
-        </span>
-        ${stateBadge}
+        <span class="rollover-days">${t.daysCarried}<small>day${t.daysCarried === 1 ? "" : "s"} carried</small></span>
+        ${t.currentlyOpen ? badge("Open today", "bad") : badge("Closed", "ok")}
       </div>
-      <h3 class="cockpit-decision-question">${escapeHtml(t.exemplarText)}</h3>
+      <h3 class="cockpit-decision-question" style="margin:8px 0 6px">${escapeHtml(t.exemplarText)}</h3>
       <div class="cockpit-rollover-trail">
         <div class="cockpit-rollover-trail-label">
-          First seen <a href="${escapeAttr(planLink(t.firstSeenDate))}">${escapeHtml(t.firstSeenDate)}</a>;
-          appeared in ${t.occurrenceCount} plan${t.occurrenceCount === 1 ? "" : "s"};
-          last open <a href="${escapeAttr(planLink(t.lastOpenDate))}">${escapeHtml(t.lastOpenDate)}</a>.
+          ${icon("calendar", "icon-sm")} First seen <a href="${escapeAttr(planLink(t.firstSeenDate))}">${escapeHtml(longDate(t.firstSeenDate))}</a>
+          · in ${t.occurrenceCount} plan${t.occurrenceCount === 1 ? "" : "s"}
+          · last open <a href="${escapeAttr(planLink(t.lastOpenDate))}">${escapeHtml(longDate(t.lastOpenDate))}</a>
         </div>
-        <div class="cockpit-rollover-occurrences">${occurrenceList}</div>
+        <div class="cockpit-rollover-occurrences" aria-label="Plans this task appeared in">${occurrenceList}</div>
       </div>
     </article>
   `;

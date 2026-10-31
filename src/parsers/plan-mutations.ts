@@ -24,6 +24,7 @@ export type MutationFailure =
   | "not-found"
   | "conflict"
   | "already-decided"
+  | "not-decided"
   | "already-done"
   | "not-done"
   | "invalid-option"
@@ -79,6 +80,41 @@ export function recordDecision(
   const after = lines.slice(cursor);
   const newLines = [...before, ...insertion, ...after];
   return { ok: true, newRaw: newLines.join("\n") };
+}
+
+const DECIDED_LINE_RE = /^\s*\*\*\s*Decided\s*:?\s*\*\*\s*Option\s+([A-Z])\b/i;
+
+/**
+ * Reopen a recorded decision: remove its `**Decided:**` line (and the blank
+ * line recordDecision wrote after it) so the options become choosable
+ * again. Decisions get superseded in the meeting they concern; changing one
+ * is a real workflow, not an edge case. `expectedOption` is the
+ * compare-and-swap fingerprint: the option the page showed as decided.
+ */
+export function reopenDecision(raw: string, decisionIndex: number, expectedOption: string): MutationResult {
+  const sections = findPlanSections(raw);
+  const decision = collectAllDecisions(sections).find((d) => d.index === decisionIndex);
+  if (!decision) return { ok: false, reason: "not-found" };
+  if (!decision.decided) return { ok: false, reason: "not-decided" };
+  if (expectedOption && decision.decidedOption !== expectedOption.trim().toUpperCase()) {
+    return { ok: false, reason: "conflict" };
+  }
+
+  const lines = raw.split("\n");
+  const keep: string[] = [];
+  let removed = 0;
+  for (let i = 0; i < lines.length; i++) {
+    const inDecision = i > decision.headingLine && i <= decision.endLine;
+    if (inDecision && DECIDED_LINE_RE.test(lines[i] ?? "")) {
+      removed++;
+      // Drop the blank line recordDecision wrote after the marker.
+      if ((lines[i + 1] ?? "").trim() === "" && i + 1 <= decision.endLine) i++;
+      continue;
+    }
+    keep.push(lines[i]);
+  }
+  if (removed === 0) return { ok: false, reason: "conflict", message: "The decided marker isn't in the cockpit's format; edit the file by hand to reopen it." };
+  return { ok: true, newRaw: keep.join("\n") };
 }
 
 /* -------------------------------------------------------------------------- */

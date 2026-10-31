@@ -1,4 +1,7 @@
-import { escapeHtml, escapeAttr } from "../utils.js";
+import { escapeHtml } from "../utils.js";
+import { icon } from "./icons.js";
+import { pageHeader, sourceBadge } from "./ui.js";
+import { periodLabel } from "./project-detail.js";
 
 export function sessionDetailView(opts: {
   projectId: string;
@@ -6,21 +9,20 @@ export function sessionDetailView(opts: {
   period: string;
   contentHtml: string;
   sourceName: string;
+  sourceLabel?: string;
 }): string {
+  const projectHref = `/projects/${encodeURIComponent(opts.sourceName)}/${encodeURIComponent(opts.projectId)}`;
   return `
-    <nav aria-label="breadcrumb">
-      <ul>
-        <li><a href="/projects">Projects</a></li>
-        <li><a href="/projects/${encodeURIComponent(opts.sourceName)}/${encodeURIComponent(opts.projectId)}">${escapeHtml(opts.projectName)}</a></li>
-        <li>Session: ${escapeHtml(opts.period)}</li>
-      </ul>
-    </nav>
-
-    <h1>${escapeHtml(opts.projectName)} — Session ${escapeHtml(opts.period)}</h1>
-    <p><small>Source: <span class="source-badge" title="Source: ${escapeAttr(opts.sourceName)}">${escapeHtml(opts.sourceName)}</span></small></p>
-
-    <div class="rendered-markdown">
-      ${opts.contentHtml}
-    </div>
+    ${pageHeader({
+      title: `Session log · ${periodLabel(opts.period)}`,
+      eyebrowHtml: `${sourceBadge(opts.sourceLabel ?? opts.sourceName, opts.sourceName)}<a href="${projectHref}">${icon("folder", "icon-sm")} ${escapeHtml(opts.projectName)}</a>`,
+      actionsHtml: `<a class="btn" href="${projectHref}">${icon("arrowLeft")}Back to project</a>`,
+    })}
+    <section class="card doc-card" aria-label="Session log">
+      <h2 class="doc-card-title"><span>Sessions</span><span class="file-name">sessions/${escapeHtml(opts.period)}.md</span></h2>
+      <div class="rendered-markdown">
+        ${opts.contentHtml}
+      </div>
+    </section>
   `;
 }

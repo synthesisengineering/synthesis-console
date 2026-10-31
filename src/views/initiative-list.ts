@@ -1,26 +1,47 @@
 import type { Source } from "../config.js";
-import type { InitiativeWithSource, ProjectWithSource, ProjectStatus } from "../parsers/yaml.js";
+import type { InitiativeWithSource, ProjectWithSource } from "../parsers/yaml.js";
 import { escapeHtml, escapeAttr } from "../utils.js";
+import { icon } from "./icons.js";
+import { PROJECT_STATUS_ORDER, PROJECT_STATUS_TONE, badge, emptyState, pageHeader, statusBadge, type Tone } from "./ui.js";
 
-const STATUS_COLORS: Record<ProjectStatus, string> = {
-  active: "blue",
-  new: "purple",
-  paused: "yellow",
-  ongoing: "teal",
-  completed: "green",
-  archived: "gray",
-  superseded: "red",
+export type InitiativeHealth = "critical" | "warning" | "healthy" | "unknown";
+
+export const HEALTH_TONE: Record<InitiativeHealth, Tone> = {
+  critical: "bad",
+  warning: "warn",
+  healthy: "ok",
+  unknown: "neutral",
 };
+
+export const HEALTH_LABEL: Record<InitiativeHealth, string> = {
+  critical: "Needs attention",
+  warning: "Watch",
+  healthy: "Healthy",
+  unknown: "No health signal",
+};
+
+/** A thin bar of member projects by status, with an accessible summary. */
+export function statusRollup(members: ProjectWithSource[]): string {
+  if (members.length === 0) return "";
+  const counts: Record<string, number> = {};
+  for (const p of members) counts[p.status] = (counts[p.status] || 0) + 1;
+  const segs = PROJECT_STATUS_ORDER.filter((s) => counts[s])
+    .map((s) => `<span class="seg-${PROJECT_STATUS_TONE[s]}" style="flex:${counts[s]}" title="${counts[s]} ${s}"></span>`)
+    .join("");
+  const summary = PROJECT_STATUS_ORDER.filter((s) => counts[s]).map((s) => `${counts[s]} ${s}`).join(", ");
+  return `<div class="stackbar" role="img" aria-label="Member projects: ${escapeAttr(summary)}">${segs}</div>`;
+}
 
 export function initiativeListView(opts: {
   initiatives: InitiativeWithSource[];
   projects: ProjectWithSource[];
   sources: Source[];
+  /** Health per `${source}:${id}` from the portfolio parser. */
+  health?: Map<string, { health: InitiativeHealth; signals: string[] }>;
 }): string {
   const { initiatives, projects, sources } = opts;
 
   // Group initiatives by source; within each source, sort by status (active first) then by name.
-  const sourceByName = new Map(sources.map((s) => [s.name, s]));
   const showSourceHeader = sources.length > 1;
 
   const bySource = new Map<string, InitiativeWithSource[]>();
@@ -37,13 +58,14 @@ export function initiativeListView(opts: {
     });
   }
 
-  // Count member projects and ungrouped projects per source.
-  const memberCountByInitiative = new Map<string, number>();
+  // Member projects and ungrouped projects per source.
+  const members = new Map<string, ProjectWithSource[]>();
   const ungroupedBySource = new Map<string, number>();
   for (const p of projects) {
     if (p.initiative) {
       const key = `${p._source}:${p.initiative}`;
-      memberCountByInitiative.set(key, (memberCountByInitiative.get(key) || 0) + 1);
+      if (!members.has(key)) members.set(key, []);
+      members.get(key)!.push(p);
     } else {
       ungroupedBySource.set(p._source, (ungroupedBySource.get(p._source) || 0) + 1);
     }
@@ -54,12 +76,26 @@ export function initiativeListView(opts: {
   if (totalInitiatives === 0) {
     const ungroupedTotal = [...ungroupedBySource.values()].reduce((a, b) => a + b, 0);
     return `
-      <h1>Initiatives</h1>
-      <p>No initiatives declared in the selected sources.</p>
-      <p><small>Add an <code>initiatives:</code> section to a source's <code>projects/index.yaml</code> to group projects into portfolio-level units. See <a href="https://github.com/synthesisengineering/synthesis-console/blob/main/docs/layouts.md">docs/layouts.md</a>.</small></p>
-      ${ungroupedTotal > 0 ? `<p><small>${ungroupedTotal} project${ungroupedTotal === 1 ? " is" : "s are"} currently ungrouped.</small></p>` : ""}
+      ${pageHeader({ title: "Initiatives", lead: "Portfolio-level groups of related projects." })}
+      ${emptyState({
+        icon: "target",
+        title: "No initiatives declared",
+        bodyHtml: `Add an <code>initiatives:</code> section to a source's <code>projects/index.yaml</code> to group projects into portfolio-level units. See <a href="https://github.com/synthesisengineering/synthesis-console/blob/main/docs/initiatives.md">docs/initiatives.md</a>.${
+          ungroupedTotal > 0 ? ` ${ungroupedTotal} project${ungroupedTotal === 1 ? " is" : "s are"} currently ungrouped.` : ""
+        }`,
+      })}
     `;
   }
+
+  const healthCounts: Record<InitiativeHealth, number> = { critical: 0, warning: 0, healthy: 0, unknown: 0 };
+  for (const i of initiatives) {
+    const h = opts.health?.get(`${i._source}:${i.id}`)?.health ?? "unknown";
+    healthCounts[h]++;
+  }
+  const metaHtml = (["critical", "warning", "healthy"] as InitiativeHealth[])
+    .filter((h) => healthCounts[h])
+    .map((h) => `<span><span class="dot dot-${HEALTH_TONE[h]}" aria-hidden="true"></span>${healthCounts[h]} ${escapeHtml(HEALTH_LABEL[h].toLowerCase())}</span>`)
+    .join("");
 
   const sections: string[] = [];
 
@@ -71,24 +107,26 @@ export function initiativeListView(opts: {
     const ungrouped = ungroupedBySource.get(src.name) || 0;
 
     const header = showSourceHeader
-      ? `<h2><span class="source-badge">${escapeHtml(sourceLabel)}</span></h2>`
+      ? `<h2 class="source-block-title">${icon("layers", "icon-sm")}${escapeHtml(sourceLabel)}</h2>`
       : "";
 
-    const cards = list.map((i) => renderCard(i, memberCountByInitiative.get(`${i._source}:${i.id}`) || 0)).join("\n");
+    const cards = list
+      .map((i) => renderCard(i, members.get(`${i._source}:${i.id}`) || [], opts.health?.get(`${i._source}:${i.id}`)))
+      .join("\n");
 
     const ungroupedCard =
       ungrouped > 0
         ? `<article class="initiative-card initiative-card-ungrouped">
-            <header>
-              <h3><a href="/projects?source=${escapeAttr(src.name)}&amp;initiative=_ungrouped">Ungrouped</a></h3>
-              <span class="badge badge-outline">${ungrouped} project${ungrouped === 1 ? "" : "s"}</span>
-            </header>
-            <p><small>Projects in this source that are not yet assigned to an initiative.</small></p>
+            <div class="initiative-card-head">
+              <h3><a href="/projects?source=${encodeURIComponent(src.name)}&amp;initiative=_ungrouped">Not in an initiative</a></h3>
+              ${badge(`${ungrouped} project${ungrouped === 1 ? "" : "s"}`, "neutral", { plain: true })}
+            </div>
+            <p class="initiative-desc">Projects in this source that are not yet assigned to an initiative.</p>
           </article>`
         : "";
 
     sections.push(`
-      <section class="initiative-source-section">
+      <section class="initiative-source-section" aria-label="${escapeAttr(sourceLabel)}">
         ${header}
         <div class="initiative-grid">
           ${cards}
@@ -99,50 +137,49 @@ export function initiativeListView(opts: {
   }
 
   return `
-    <h1>Initiatives <small>(${totalInitiatives})</small></h1>
-    <p>Portfolio-level view across active sources. Each initiative groups a set of related projects.</p>
+    ${pageHeader({
+      title: "Initiatives",
+      count: totalInitiatives,
+      lead: "Portfolio-level view across the selected sources. Each initiative groups related projects; health comes from their records.",
+      metaHtml,
+    })}
     ${sections.join("\n")}
   `;
 }
 
-function renderCard(initiative: InitiativeWithSource, memberCount: number): string {
-  const statusColor = STATUS_COLORS[initiative.status] || "gray";
+function renderCard(
+  initiative: InitiativeWithSource,
+  members: ProjectWithSource[],
+  health?: { health: InitiativeHealth; signals: string[] }
+): string {
+  const h = health?.health ?? "unknown";
   const description = initiative.description
-    ? `<p class="initiative-desc">${escapeHtml(truncate(initiative.description, 180))}</p>`
+    ? `<p class="initiative-desc">${escapeHtml(initiative.description)}</p>`
     : "";
 
-  const metaParts: string[] = [];
-  if (initiative.lead) metaParts.push(`Lead: ${escapeHtml(initiative.lead)}`);
-  if (initiative.stakeholder) metaParts.push(`Stakeholder: ${escapeHtml(initiative.stakeholder)}`);
-  const meta = metaParts.length ? `<p class="initiative-meta"><small>${metaParts.join(" &middot; ")}</small></p>` : "";
+  const foot: string[] = [];
+  foot.push(`<span>${icon("folder")}${members.length} project${members.length === 1 ? "" : "s"}</span>`);
+  if (initiative.lead) foot.push(`<span>${icon("user")}${escapeHtml(initiative.lead)}</span>`);
+  if (initiative.target_date) foot.push(`<span>${icon("calendar")}Target ${escapeHtml(initiative.target_date)}</span>`);
+  else if (initiative.started_date) foot.push(`<span>${icon("calendar")}Since ${escapeHtml(initiative.started_date)}</span>`);
 
-  const dateParts: string[] = [];
-  if (initiative.started_date) dateParts.push(`Started ${escapeHtml(initiative.started_date)}`);
-  if (initiative.target_date) dateParts.push(`Target ${escapeHtml(initiative.target_date)}`);
-  if (initiative.completed_date) dateParts.push(`Completed ${escapeHtml(initiative.completed_date)}`);
-  const dates = dateParts.length ? `<p class="initiative-dates"><small>${dateParts.join(" &middot; ")}</small></p>` : "";
+  const healthTitle = health?.signals.length ? health.signals.join("\n") : HEALTH_LABEL[h];
 
   return `
     <article class="initiative-card">
-      <header>
-        <h3>
-          <a href="/initiatives/${encodeURIComponent(initiative._source)}/${encodeURIComponent(initiative.id)}">
-            ${escapeHtml(initiative.name)}
-          </a>
-        </h3>
-        <div>
-          <span class="badge badge-${statusColor}">${escapeHtml(initiative.status)}</span>
-          <span class="badge badge-outline">${memberCount} project${memberCount === 1 ? "" : "s"}</span>
-        </div>
-      </header>
+      <div class="initiative-card-head">
+        <h3><a href="/initiatives/${encodeURIComponent(initiative._source)}/${encodeURIComponent(initiative.id)}">${escapeHtml(initiative.name)}</a></h3>
+        ${statusBadge(initiative.status)}
+      </div>
       ${description}
-      ${meta}
-      ${dates}
+      <div class="stack-sm">
+        ${statusRollup(members)}
+        <div class="rollup-legend"><span title="${escapeAttr(healthTitle)}"><span class="dot dot-${HEALTH_TONE[h]}" aria-hidden="true"></span>${escapeHtml(HEALTH_LABEL[h])}</span>${
+          members.length ? PROJECT_STATUS_ORDER.filter((s) => members.some((p) => p.status === s)).map((s) => `<span>${members.filter((p) => p.status === s).length} ${escapeHtml(s)}</span>`).join("") : ""
+        }</div>
+      </div>
+      <div class="initiative-foot">${foot.join("")}</div>
     </article>
   `;
 }
 
-function truncate(s: string, max: number): string {
-  if (s.length <= max) return s;
-  return s.slice(0, max).trimEnd() + "...";
-}
