@@ -97,7 +97,12 @@
     if (scrim) scrim.hidden = false;
     if (menuBtn) menuBtn.setAttribute('aria-expanded', 'true');
     var target = sidebar && (sidebar.querySelector('.nav-link[aria-current="page"]') || sidebar.querySelector('.nav-link'));
-    if (target) setTimeout(function () { target.focus(); }, 30);
+    if (target) {
+      // Apply the open styles now, so the link is focusable without waiting
+      // on a timer (background pages throttle timers to a second or more).
+      void sidebar.offsetWidth;
+      target.focus();
+    }
   }
 
   function closeDrawer(returnFocus) {
