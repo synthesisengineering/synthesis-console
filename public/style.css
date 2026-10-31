@@ -2226,7 +2226,7 @@ details.doc-card[open] > summary::before,
   padding: 14px var(--sp-5);
   border-bottom: 1px solid var(--border);
 }
-.month-title { margin: 0; font-size: var(--fs-xl); }
+.month-title { margin: 0; font-size: var(--fs-xl); white-space: nowrap; }
 .month-nav { display: flex; align-items: center; gap: 6px; }
 .month-nav .disabled { opacity: 0.4; pointer-events: none; }
 
@@ -3464,8 +3464,6 @@ tr.doctor-warn td { background: light-dark(#fffdf7, rgba(245, 158, 11, 0.04)); }
   .cockpit-glance-counts { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .detail-layout,
   .split { grid-template-columns: minmax(0, 1fr); }
-  .detail-layout .rail,
-  .split .rail { order: -1; }
   .rail-sticky { position: static; }
   .doc-card { padding: var(--sp-5) var(--sp-6); }
   details.doc-card > summary { margin: calc(-1 * var(--sp-5)) calc(-1 * var(--sp-6)); padding: var(--sp-4) var(--sp-6); }
@@ -3531,6 +3529,9 @@ tr.doctor-warn td { background: light-dark(#fffdf7, rgba(245, 158, 11, 0.04)); }
   .palette-trigger kbd { display: none; }
   .breadcrumb li:not(:last-child):not(:nth-last-child(2)) { display: none; }
   .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .stats > :last-child:nth-child(odd) { grid-column: span 2; }
+  .month-head { padding: 12px var(--sp-4); }
+  .month-head > .muted { display: none; }
   .cockpit-glance-counts { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
   .cockpit-count { padding: 9px 10px; }
   .cockpit-count-num { font-size: var(--fs-lg); }

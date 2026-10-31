@@ -16,6 +16,17 @@ describe("field lines", () => {
   });
 });
 
+describe("task lists", () => {
+  test("a task item shows its checkbox without the [x] marker text", () => {
+    const html = renderMarkdown("1. [x] Done item\n2. [ ] Open item\n\n- [x] **Bold** item\n- not a [x] task");
+    expect(html).toContain('<input type="checkbox" checked disabled> Done item');
+    expect(html).toContain('<input type="checkbox" disabled> Open item');
+    expect(html).toContain('<input type="checkbox" checked disabled> <strong>Bold</strong> item');
+    expect(html).toContain("not a [x] task");
+    expect(html).not.toContain("[x] Done");
+  });
+});
+
 const PLAN = `# Plan
 
 ## 🚨 Decisions needed

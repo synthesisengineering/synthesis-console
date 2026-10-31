@@ -86,39 +86,26 @@ function taskListPlugin(md: MarkdownIt) {
     const tokens = state.tokens;
     for (let i = 0; i < tokens.length; i++) {
       if (tokens[i].type !== "inline") continue;
-      const content = tokens[i].content;
-      if (!content) continue;
-
-      // Check if this inline token starts with [ ] or [x]
-      if (content.startsWith("[x] ") || content.startsWith("[X] ")) {
-        tokens[i].content = content.slice(4);
-        // Find the parent list item and mark it
-        for (let j = i - 1; j >= 0; j--) {
-          if (tokens[j].type === "list_item_open") {
-            tokens[j].attrSet("class", "task-list-item");
-            break;
-          }
+      const marker = (tokens[i].content || "").match(/^\[([ xX])\] /);
+      if (!marker) continue;
+      const checked = marker[1] !== " ";
+      tokens[i].content = tokens[i].content.slice(4);
+      // Find the parent list item and mark it
+      for (let j = i - 1; j >= 0; j--) {
+        if (tokens[j].type === "list_item_open") {
+          tokens[j].attrSet("class", "task-list-item");
+          break;
         }
-        // Prepend checked checkbox
-        const checkToken = new state.Token("html_inline", "", 0);
-        checkToken.content = '<input type="checkbox" checked disabled> ';
-        const children = tokens[i].children ?? [];
-        children.unshift(checkToken);
-        tokens[i].children = children;
-      } else if (content.startsWith("[ ] ")) {
-        tokens[i].content = content.slice(4);
-        for (let j = i - 1; j >= 0; j--) {
-          if (tokens[j].type === "list_item_open") {
-            tokens[j].attrSet("class", "task-list-item");
-            break;
-          }
-        }
-        const checkToken = new state.Token("html_inline", "", 0);
-        checkToken.content = '<input type="checkbox" disabled> ';
-        const children = tokens[i].children ?? [];
-        children.unshift(checkToken);
-        tokens[i].children = children;
       }
+      // The inline children are already parsed: drop the "[x] " text there
+      // too, so the item shows the checkbox alone.
+      const children = tokens[i].children ?? [];
+      const first = children.find((c) => c.type === "text" && c.content !== "");
+      if (first) first.content = first.content.replace(/^\[[ xX]\] /, "");
+      const checkToken = new state.Token("html_inline", "", 0);
+      checkToken.content = checked ? '<input type="checkbox" checked disabled> ' : '<input type="checkbox" disabled> ';
+      children.unshift(checkToken);
+      tokens[i].children = children;
     }
   });
 }
