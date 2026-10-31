@@ -7,7 +7,8 @@
  */
 import { Hono } from "hono";
 import { join } from "path";
-import type { ConsoleConfig } from "../config.js";
+import type { ConsoleConfig, Source } from "../config.js";
+import type { PlanEntry } from "../views/plan.js";
 import { displayName, findSource, getPlansPath } from "../config.js";
 import { activeSources } from "../active-sources.js";
 import { loadProjectsFromSources } from "../parsers/yaml.js";
@@ -33,28 +34,32 @@ export function todayRoutes(config: ConsoleConfig, stateDir = autopilotStateDir(
     const now = new Date();
     const today = todayIso(now);
 
-    // Today's plan: the first active source that keeps plans and has one for today.
+    // Today's plan: the first active source that keeps plans and has one
+    // for today. Until the day-start ritual writes it, the newest plan
+    // stands in, labeled as such.
     const planSources = active.filter((s) => !!getPlansPath(s));
-    let todayPlan: TodayPlan | null = null;
-    let latestPlan: { href: string; date: string; sourceLabel: string } | null = null;
+    let todayHit: { src: Source; entry: PlanEntry } | null = null;
+    let newestHit: { src: Source; entry: PlanEntry } | null = null;
     for (const src of planSources) {
       const plans = loadPlansFromSource(src);
       const hit = plans.find((p) => p.date === today);
-      if (hit && !todayPlan) {
-        const bundle = readAndRenderPlanForCockpit(join(getPlansPath(src)!, hit.filename), { editable: false });
-        todayPlan = {
-          source: src.name,
-          sourceLabel: displayName(src),
-          date: hit.date,
-          href: `/plans/${encodeURIComponent(src.name)}/${hit.date}`,
-          mtimeMs: bundle?.mtimeMs ?? now.getTime(),
-          summary: bundle ? summarizePlan(bundle.sections, bundle.drafts, bundle.draftsHtml) : null,
-        };
-      }
+      if (hit && !todayHit) todayHit = { src, entry: hit };
       const newest = plans[0];
-      if (newest && (!latestPlan || newest.date > latestPlan.date)) {
-        latestPlan = { href: `/plans/${encodeURIComponent(src.name)}/${newest.date}`, date: newest.date, sourceLabel: displayName(src) };
-      }
+      if (newest && (!newestHit || newest.date > newestHit.entry.date)) newestHit = { src, entry: newest };
+    }
+    const shown = todayHit ?? newestHit;
+    let todayPlan: TodayPlan | null = null;
+    if (shown) {
+      const bundle = readAndRenderPlanForCockpit(join(getPlansPath(shown.src)!, shown.entry.filename), { editable: false });
+      todayPlan = {
+        source: shown.src.name,
+        sourceLabel: displayName(shown.src),
+        date: shown.entry.date,
+        isToday: shown.entry.date === today,
+        href: `/plans/${encodeURIComponent(shown.src.name)}/${shown.entry.date}`,
+        mtimeMs: bundle?.mtimeMs ?? now.getTime(),
+        summary: bundle ? summarizePlan(bundle.sections, bundle.drafts, bundle.draftsHtml) : null,
+      };
     }
 
     const projects = loadProjectsFromSources(active);
@@ -91,7 +96,6 @@ export function todayRoutes(config: ConsoleConfig, stateDir = autopilotStateDir(
       activeCount: active.length,
       hasPlanSource: planSources.length > 0,
       todayPlan,
-      latestPlan,
       projects: live.slice(0, 6),
       projectCounts: {
         live: live.length,

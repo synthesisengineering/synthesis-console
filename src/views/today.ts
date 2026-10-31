@@ -19,6 +19,8 @@ export interface TodayPlan {
   source: string;
   sourceLabel: string;
   date: string;
+  /** False when today's plan is not written yet and the newest plan stands in. */
+  isToday: boolean;
   href: string;
   mtimeMs: number;
   summary: PlanSummary | null;
@@ -40,7 +42,6 @@ export interface TodayOpts {
   activeCount: number;
   hasPlanSource: boolean;
   todayPlan: TodayPlan | null;
-  latestPlan: { href: string; date: string; sourceLabel: string } | null;
   projects: ProjectWithSource[];
   projectCounts: { live: number; paused: number; total: number };
   lanes: TodayLane[];
@@ -72,14 +73,10 @@ function planCard(o: TodayOpts): string {
   if (!p) {
     const body = !o.hasPlanSource
       ? "None of the selected sources keeps daily plans. Declare <code>plans_dir</code> on a source to add them."
-      : o.latestPlan
-        ? `The day-start ritual writes today's plan. The latest is <a href="${escapeAttr(o.latestPlan.href)}">${escapeHtml(longDate(o.latestPlan.date, true))}</a>.`
-        : "The day-start ritual writes each day's plan into the source's daily-plans folder.";
+      : "The day-start ritual writes each day's plan into the source's daily-plans folder.";
     return `<section class="card" aria-labelledby="today-plan-title">
-  <div class="card-header"><h2 class="card-title" id="today-plan-title">${icon("calendar")}Today's plan</h2>${
-    o.latestPlan ? `<a class="section-link" href="${escapeAttr(o.latestPlan.href)}">Latest plan ${icon("arrowRight", "icon-sm")}</a>` : ""
-  }</div>
-  <div class="card-body">${emptyState({ icon: "calendar", title: "No plan for today yet", bodyHtml: body, compact: true })}</div>
+  <div class="card-header"><h2 class="card-title" id="today-plan-title">${icon("calendar")}Today's plan</h2></div>
+  <div class="card-body">${emptyState({ icon: "calendar", title: "No daily plans yet", bodyHtml: body, compact: true })}</div>
 </section>`;
   }
 
@@ -98,10 +95,10 @@ function planCard(o: TodayOpts): string {
   return `<section class="card today-plan" aria-labelledby="today-plan-title">
   <div class="today-plan-head">
     <div>
-      <h2 class="today-plan-title" id="today-plan-title">Today's plan</h2>
-      <p class="today-plan-sub">${sourceBadge(p.sourceLabel, p.source)} · updated ${escapeHtml(ago(p.mtimeMs, o.now))}</p>
+      <h2 class="today-plan-title" id="today-plan-title">${p.isToday ? "Today's plan" : `Latest plan · ${escapeHtml(longDate(p.date, p.date.slice(0, 4) !== String(o.now.getFullYear())))}`}</h2>
+      <p class="today-plan-sub">${sourceBadge(p.sourceLabel, p.source)} · updated ${escapeHtml(ago(p.mtimeMs, o.now))}${p.isToday ? "" : " · today's plan is not written yet"}</p>
     </div>
-    <a class="btn btn-primary" href="${escapeAttr(p.href)}">Open plan ${icon("arrowRight")}</a>
+    <a class="btn ${p.isToday ? "btn-primary" : ""}" href="${escapeAttr(p.href)}">Open plan ${icon("arrowRight")}</a>
   </div>
   ${stats}
   ${brief}
@@ -157,7 +154,7 @@ function projectsSection(o: TodayOpts): string {
     ${statusBadge(p.status)}
   </div>
   ${p.description ? `<p class="mini-project-desc">${escapeHtml(p.description.replace(/\n/g, " "))}</p>` : ""}
-  <div class="mini-project-foot">${o.sources.length > 1 ? sourceBadge(label, p._source) : ""}<span class="project-time">${icon("clock")}${escapeHtml(relativeLabel(p._lastActiveMs, o.now.getTime()))}</span></div>
+  <div class="mini-project-foot">${o.activeCount > 1 ? sourceBadge(label, p._source) : ""}<span class="project-time">${icon("clock")}${escapeHtml(relativeLabel(p._lastActiveMs, o.now.getTime()))}</span></div>
 </article>`;
     })
     .join("\n");
@@ -300,9 +297,8 @@ function conversationsSection(o: TodayOpts): string {
 }
 
 export function todayView(o: TodayOpts): string {
-  const planHref = o.todayPlan?.href;
-  const actions = planHref
-    ? `<a class="btn btn-primary" href="${escapeAttr(planHref)}">${icon("calendar")}Today's plan</a>`
+  const actions = o.todayPlan?.isToday
+    ? `<a class="btn btn-primary" href="${escapeAttr(o.todayPlan.href)}">${icon("calendar")}Today's plan</a>`
     : `<a class="btn" href="/plans">${icon("calendar")}Daily plans</a>`;
   const meta = [
     `<span>${icon("folder", "icon-sm")}${o.projectCounts.live} project${o.projectCounts.live === 1 ? "" : "s"} in motion</span>`,

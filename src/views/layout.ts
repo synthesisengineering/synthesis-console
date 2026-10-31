@@ -193,7 +193,7 @@ function buildCrumbs(crumbs: Crumb[] | undefined, currentPath: string, title: st
   if (!trail) {
     const section = sectionFor(currentPath);
     trail = section
-      ? section.label === title
+      ? currentPath === section.href || section.label === title
         ? [{ label: section.label }]
         : [{ label: section.label, href: section.href }, { label: title }]
       : [{ label: title }];

@@ -51,9 +51,10 @@ export function conversationRoutes(config: ConsoleConfig, read: ConversationRead
         content: conversationView(id, full, await read.show(id, full)),
         sources: config.sources,
         activeSourceNames: active.map((source) => source.name),
-        currentPath: "/conversations",
+        currentPath: `/conversations/${id}`,
         demoMode: config.demoMode,
         wide: true,
+        crumbs: [{ label: "Conversations", href: "/conversations" }, { label: `Session ${id.slice(0, 8)}` }],
       })
     );
   });

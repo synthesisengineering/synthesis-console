@@ -23,6 +23,38 @@ const md = new MarkdownIt({
 
 // Enable task list checkboxes (- [x] and - [ ])
 md.use(taskListPlugin);
+md.use(fieldLinesPlugin);
+
+/**
+ * Field lines: project records and plans write one field per line
+ * (`**Phase:** …` then `**Status:** …`) without blank lines between them.
+ * A soft break before a bold label that ends in a colon becomes a line
+ * break, so each field keeps its own line; hard-wrapped prose keeps its
+ * soft breaks and still renders as one paragraph.
+ */
+export function fieldLinesPlugin(md: MarkdownIt) {
+  md.core.ruler.after("inline", "field-lines", (state) => {
+    for (const token of state.tokens) {
+      if (token.type !== "inline" || !token.children) continue;
+      const ch = token.children;
+      for (let i = 0; i < ch.length - 1; i++) {
+        if (ch[i].type !== "softbreak") continue;
+        // markdown-it leaves an empty text token before a delimiter run.
+        let k = i + 1;
+        while (k < ch.length && ch[k].type === "text" && ch[k].content === "") k++;
+        if (ch[k]?.type !== "strong_open") continue;
+        let label = "";
+        let j = k + 1;
+        for (; j < ch.length && ch[j].type !== "strong_close"; j++) label += ch[j].content;
+        const after = ch[j + 1]?.type === "text" ? ch[j + 1].content : "";
+        if (label.length > 0 && label.length <= 48 && (/:\s*$/.test(label) || /^\s*:/.test(after))) {
+          ch[i].type = "hardbreak";
+          ch[i].tag = "br";
+        }
+      }
+    }
+  });
+}
 
 // External links: open in new tab so the daily plan never gets clobbered.
 // Inline markdown links to Slack (timestamped permalinks like
@@ -799,7 +831,7 @@ export function wrapSentDraftSections(html: string, drafts: DraftBlock[]): strin
         <span class="cockpit-sent-checkmark" aria-hidden="true">✓</span>
         <span class="cockpit-sent-title">${cleanTitle}</span>
         ${sentMeta.metaText ? `<span class="cockpit-sent-meta">${sentMeta.metaText}</span>` : ""}
-        ${sentMeta.permalink ? `<a class="cockpit-sent-link" href="${escapeAttr(sentMeta.permalink)}" target="_blank" rel="noopener" onclick="event.stopPropagation();">View in Slack</a>` : ""}
+        ${sentMeta.permalink ? `<a class="cockpit-sent-link" href="${escapeAttr(sentMeta.permalink)}" target="_blank" rel="noopener">View in Slack</a>` : ""}
       </summary>
     `.trim();
 

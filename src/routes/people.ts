@@ -13,6 +13,7 @@ import type { ConsoleConfig } from "../config.js";
 import { findSource, displayName } from "../config.js";
 import { computePeople } from "../parsers/people.js";
 import { readPrepPack } from "../parsers/prep-pack.js";
+import { loadPlansFromSource } from "../parsers/entries.js";
 import { renderMarkdown } from "../parsers/markdown.js";
 import { layout } from "../views/layout.js";
 import { sourceGateView, notFoundView } from "../views/source-gate.js";
@@ -23,16 +24,29 @@ import { activeSources, isSourceActive } from "../active-sources.js";
 
 const PEOPLE_WINDOW_DAYS = 30;
 
+function newestPlanDate(sources: import("../config.js").Source[]): string | undefined {
+  return sources.flatMap((s) => loadPlansFromSource(s)).map((p) => p.date).sort().pop();
+}
+
+function endOfDay(date: string): Date {
+  const [y, m, d] = date.split("-").map(Number);
+  return new Date(y, m - 1, d, 23, 59, 59);
+}
+
 export function peopleRoutes(config: ConsoleConfig): Hono {
   const app = new Hono();
 
   app.get("/people", (c) => {
     const active = activeSources(c, config);
-    const people = computePeople(active, PEOPLE_WINDOW_DAYS);
+    // Sample data is frozen in time: when only demo sources are in view, read
+    // the window as of the sample's newest plan, so the demo shows what this
+    // view does instead of an empty window.
+    const asOf = active.length > 0 && active.every((s) => s.demo === true) ? newestPlanDate(active) : undefined;
+    const people = computePeople(active, PEOPLE_WINDOW_DAYS, asOf ? endOfDay(asOf) : undefined);
     return c.html(
       layout({
         title: "People",
-        content: peopleView({ people, windowDays: PEOPLE_WINDOW_DAYS }),
+        content: peopleView({ people, windowDays: PEOPLE_WINDOW_DAYS, asOf }),
         sources: config.sources,
         activeSourceNames: active.map((s) => s.name),
         currentPath: "/people",

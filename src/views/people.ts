@@ -8,11 +8,13 @@
 import { escapeHtml, escapeAttr } from "../utils.js";
 import type { PersonRecord } from "../parsers/people.js";
 import { icon } from "./icons.js";
-import { emptyState, initials, pageHeader, shortDate, statTile } from "./ui.js";
+import { emptyState, initials, longDate, pageHeader, shortDate, statTile } from "./ui.js";
 
 export interface PeopleViewOpts {
   people: PersonRecord[];
   windowDays: number;
+  /** Set when the window is read as of a fixed date (demo sample data). */
+  asOf?: string;
 }
 
 function fmtTouch(t: NonNullable<PersonRecord["lastTouch"]>): string {
@@ -80,7 +82,7 @@ export function peopleView(opts: PeopleViewOpts): string {
     ${pageHeader({
       title: "People",
       count: opts.people.length || "",
-      lead: `Commitments and touchpoints from the last ${opts.windowDays} days of plans, drafts, calendar sections and prep packs. Nothing here is hand-kept: it reflects what the files say.`,
+      lead: `Commitments and touchpoints from the ${opts.asOf ? `${opts.windowDays} days of sample data up to ${longDate(opts.asOf, true)}` : `last ${opts.windowDays} days`} of plans, drafts, calendar sections and prep packs. Nothing here is hand-kept: it reflects what the files say.`,
     })}
     ${opts.people.length
       ? `<div class="stats">

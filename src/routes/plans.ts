@@ -56,7 +56,7 @@ export function planRoutes(config: ConsoleConfig) {
 
     return c.html(
       layout({
-        title: "Daily Plans",
+        title: "Daily plans",
         content,
         sources: config.sources,
         activeSourceNames: active.map((s) => s.name),

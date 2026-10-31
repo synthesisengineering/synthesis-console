@@ -244,12 +244,13 @@
     var data = paletteData || {};
 
     function ranked(list, key, limit) {
-      return list
+      var scored = list
         .map(function (it) { return { it: it, s: score(it[key] + ' ' + (it.extra || ''), q) }; })
         .filter(function (x) { return x.s > 0; })
-        .sort(function (a, b) { return b.s - a.s; })
-        .slice(0, limit)
-        .map(function (x) { return x.it; });
+        .sort(function (a, b) { return b.s - a.s; });
+      // When the words appear as typed, loose letter-by-letter matches are noise.
+      if (scored.length && scored[0].s >= 500) scored = scored.filter(function (x) { return x.s >= 500; });
+      return scored.slice(0, limit).map(function (x) { return x.it; });
     }
 
     var go = ranked(navItems(), 'label', q ? 6 : 20);

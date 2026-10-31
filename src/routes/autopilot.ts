@@ -13,6 +13,7 @@ import {
 } from "../autopilot.js";
 import { autopilotDetail, autopilotLanding } from "../views/autopilot.js";
 import { layout } from "../views/layout.js";
+import { notFoundView } from "../views/source-gate.js";
 
 /** The plan text is served by the detail endpoint only. */
 function summary(run: AutopilotRun) {
@@ -107,15 +108,16 @@ export function autopilotRoutes(config: ConsoleConfig, stateDir = autopilotState
           content,
           sources: config.sources,
           activeSourceNames: active.map((s) => s.name),
-          currentPath: "/autopilot",
+          currentPath: c.req.path,
           demoMode: config.demoMode,
+          crumbs: [{ label: "Autopilot", href: "/autopilot" }, { label: title }],
         }),
         status
       );
     if (!run) {
       return page(
         "Run not found",
-        `<h1>Run not found</h1><p>No autopilot run with that session is recorded for the selected sources.</p><p><a href="/autopilot">← Autopilot</a></p>`,
+        notFoundView({ message: "No autopilot run with that session is recorded for the selected sources.", backHref: "/autopilot", backLabel: "All runs" }),
         404
       );
     }

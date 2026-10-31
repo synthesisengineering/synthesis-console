@@ -87,7 +87,7 @@ export function projectListView(opts: {
       title: "Projects",
       count: total,
       lead,
-      actionsHtml: `<div class="segmented" role="group" aria-label="Layout">
+      actionsHtml: `<div class="segmented view-toggle" role="group" aria-label="Layout">
         <button type="button" data-set-view="cards" aria-pressed="true" title="Cards">${icon("grid")}<span class="sr-only">Cards</span></button>
         <button type="button" data-set-view="table" aria-pressed="false" title="Dense list">${icon("rows")}<span class="sr-only">Dense list</span></button>
       </div>`,

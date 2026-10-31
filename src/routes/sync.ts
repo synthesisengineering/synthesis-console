@@ -18,7 +18,7 @@ export function syncRoutes(config: ConsoleConfig, guard = new RepoGuard()) {
     const active = activeSources(c, config);
     return c.html(
       layout({
-        title: "Repo Sync",
+        title: "Repo sync",
         content: syncView(guard.status()),
         sources: config.sources,
         activeSourceNames: active.map((s) => s.name),
