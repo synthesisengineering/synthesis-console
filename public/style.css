@@ -3563,11 +3563,13 @@ tr.doctor-warn td { background: light-dark(#fffdf7, rgba(245, 158, 11, 0.04)); }
   .send-modal { padding: var(--sp-4); }
 }
 
+/* Reduced motion means no motion: transitions and their delays go to zero,
+   so state changes such as the drawer's visibility apply at once. */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
+    animation: none !important;
+    transition-duration: 0s !important;
+    transition-delay: 0s !important;
     scroll-behavior: auto !important;
   }
 }

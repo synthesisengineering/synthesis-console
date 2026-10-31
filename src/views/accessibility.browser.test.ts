@@ -322,40 +322,44 @@ test("keyboard focus, named controls, status meanings and AX tree are real brows
 
     // Phone pass: the sidebar is a closed drawer, out of the tab order, and
     // the menu button opens it, moves focus inside, and Escape closes it and
-    // returns focus to the button.
+    // returns focus to the button. Run with and without reduced motion: the
+    // drawer's visibility must apply at once either way.
     await call(
       "Emulation.setDeviceMetricsOverride",
       { width: 390, height: 844, deviceScaleFactor: 1, mobile: true },
       sessionId,
     );
-    // A fresh document, so sequential focus starts at the top of the page.
-    await call("Page.navigate", { url: "about:blank" }, sessionId);
-    await call(
-      "Page.navigate",
-      { url: `http://127.0.0.1:${server.port}/conformance?phone=1` },
-      sessionId,
-    );
-    for (let i = 0; i < 100; i++) {
-      await Bun.sleep(20);
-      if (await evaluate('location.search === "?phone=1" && document.readyState === "complete" && !!document.querySelector(".menu-btn")')) break;
+    for (const motion of ["no-preference", "reduce"]) {
+      await call(
+        "Emulation.setEmulatedMedia",
+        { features: [{ name: "prefers-reduced-motion", value: motion }] },
+        sessionId,
+      );
+      // A fresh document, so sequential focus starts at the top of the page.
+      await call("Page.navigate", { url: "about:blank" }, sessionId);
+      await call(
+        "Page.navigate",
+        { url: `http://127.0.0.1:${server.port}/conformance?motion=${motion}` },
+        sessionId,
+      );
+      for (let i = 0; i < 100; i++) {
+        await Bun.sleep(20);
+        if (await evaluate(`location.search === "?motion=${motion}" && document.readyState === "complete" && !!document.querySelector(".menu-btn")`)) break;
+      }
+      await key("Tab", "Tab", 9);
+      expect(await evaluate("document.activeElement.textContent")).toBe("Skip to main content");
+      await key("Tab", "Tab", 9);
+      evidence[`phoneSecondFocus-${motion}`] = await evaluate("document.activeElement.className");
+      expect(evidence[`phoneSecondFocus-${motion}`]).toContain("menu-btn");
+      expect(await evaluate('document.activeElement.getAttribute("aria-expanded")')).toBe("false");
+      await key("Enter", "Enter", 13);
+      expect(await evaluate('document.querySelector(".app").dataset.sidebar')).toBe("open");
+      expect(await evaluate('document.activeElement.classList.contains("nav-link")')).toBeTrue();
+      expect(await evaluate('document.querySelector(".menu-btn").getAttribute("aria-expanded")')).toBe("true");
+      await key("Escape", "Escape", 27);
+      expect(await evaluate('document.querySelector(".app").dataset.sidebar')).toBe("closed");
+      expect(await evaluate('document.activeElement.classList.contains("menu-btn")')).toBeTrue();
     }
-    await key("Tab", "Tab", 9);
-    expect(await evaluate("document.activeElement.textContent")).toBe("Skip to main content");
-    await key("Tab", "Tab", 9);
-    evidence.phoneSecondFocus = await evaluate("document.activeElement.className");
-    expect(evidence.phoneSecondFocus).toContain("menu-btn");
-    expect(await evaluate('document.activeElement.getAttribute("aria-expanded")')).toBe("false");
-    await key("Enter", "Enter", 13);
-    for (let i = 0; i < 50; i++) {
-      if (await evaluate('document.activeElement && document.activeElement.classList.contains("nav-link")')) break;
-      await Bun.sleep(20);
-    }
-    expect(await evaluate('document.querySelector(".app").dataset.sidebar')).toBe("open");
-    expect(await evaluate('document.activeElement.classList.contains("nav-link")')).toBeTrue();
-    expect(await evaluate('document.querySelector(".menu-btn").getAttribute("aria-expanded")')).toBe("true");
-    await key("Escape", "Escape", 27);
-    expect(await evaluate('document.querySelector(".app").dataset.sidebar')).toBe("closed");
-    expect(await evaluate('document.activeElement.classList.contains("menu-btn")')).toBeTrue();
     writeFileSync(
       join(root, "observed.json"),
       JSON.stringify(evidence, null, 2),
