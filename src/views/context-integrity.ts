@@ -4,6 +4,10 @@ import type {
   ContextIntegrityStatus,
   SourceAudit,
 } from "../context-integrity.js";
+import { icon } from "./icons.js";
+import { badge, callout, emptyState, pageHeader } from "./ui.js";
+
+const LEAD = "The context doctor checks that every project's records (CONTEXT.md, REFERENCE.md, the session log and its entry in projects/index.yaml) are small, current and committed, so another session or machine can resume the work cold.";
 
 /**
  * /context: the v5 context doctor's findings for each active source. Like
@@ -11,49 +15,54 @@ import type {
  * and project names are appropriate here.
  */
 export function contextIntegrityView(status: ContextIntegrityStatus): string {
-  const head = `<h1>Context Integrity</h1>
-<p>The context doctor checks that every project's records (CONTEXT.md, REFERENCE.md, the
-session log and its entry in <code>projects/index.yaml</code>) are small, current and
-committed, so another session or machine can resume the work cold.</p>`;
-
   if (!status.doctorAvailable) {
     const searched = status.searched.map((dir) => `<li><code>${escapeHtml(dir)}</code></li>`).join("\n");
-    return `${head}
-<p role="alert">The context doctor (<code>synthesis-context-lifecycle</code>) was not found in the
-synthesis v5 runtime or any harness plugin cache. Install the synthesis-skills plugin. Searched:</p>
-<ul>
-${searched}
-</ul>`;
+    return `${pageHeader({ title: "Context integrity", lead: LEAD })}
+${callout(
+  "warn",
+  `The context doctor (<code>synthesis-context-lifecycle</code>) was not found in the synthesis v5 runtime or any harness plugin cache. Install the synthesis-skills plugin. Searched:<ul>${searched}</ul>`,
+  { title: "Context doctor not installed", role: "alert" }
+)}`;
   }
 
   const { totals } = status;
   const audited = status.audits.filter((audit) => audit.report);
-  const summary = status.audits.length
-    ? `<p><strong>${totals.defects} defect(s)</strong> · ${totals.warnings} warning(s) ·
-${totals.projects} project(s) audited across ${audited.length} source(s)${
-        totals.failedSources ? ` · <mark>${totals.failedSources} source(s) could not be audited</mark>` : ""
-      }${!totals.defects && !totals.failedSources ? " — <mark>HEALTHY</mark>" : ""}</p>`
-    : `<p>No active source has projects to audit. Select a source with projects in the source picker.</p>`;
-  const skipped = status.skipped.length
-    ? `<p><small>Not audited: ${status.skipped
-        .map((row) => `${escapeHtml(row.displayName)} (${escapeHtml(row.reason)})`)
-        .join(", ")}.</small></p>`
-    : "";
   const controls = status.audits.length
     ? `<div class="sync-controls">
-<button id="ctx-run-btn" type="button">Run again</button>
+<button id="ctx-run-btn" type="button">${icon("refresh")}Run again</button>
 <span id="ctx-progress" role="status" aria-live="polite"></span>
 </div>`
     : "";
 
-  return `${head}
-${summary}
+  const healthy = !totals.defects && !totals.failedSources;
+  const verdict = status.audits.length
+    ? `<section class="card verdict ${healthy ? "verdict-ok" : totals.defects ? "verdict-warn" : "verdict-warn"}" aria-label="Verdict">
+  <div class="verdict-main">
+    <span class="verdict-icon">${icon(healthy ? "checkCircle" : "alert")}</span>
+    <div>
+      <p class="verdict-title">${healthy ? "Healthy" : totals.defects ? `${totals.defects} defect(s)` : "Not every source was audited"}</p>
+      <p class="verdict-sub"><strong>${totals.defects} defect(s)</strong> · ${totals.warnings} warning(s) · ${totals.projects} project(s) audited across ${audited.length} source(s)${
+        totals.failedSources ? ` · <mark>${totals.failedSources} source(s) could not be audited</mark>` : ""
+      }</p>
+    </div>
+  </div>
+  <div class="verdict-tally">${badge(`${totals.defects} defects`, totals.defects ? "warn" : "ok")}${badge(`${totals.warnings} warnings`, totals.warnings ? "info" : "neutral")}</div>
+</section>`
+    : emptyState({ icon: "fileCheck", title: "Nothing to audit", body: "No active source has projects to audit. Select a source with projects in the source picker." });
+
+  const skipped = status.skipped.length
+    ? `<p class="section-note">Not audited: ${status.skipped
+        .map((row) => `${escapeHtml(row.displayName)} (${escapeHtml(row.reason)})`)
+        .join(", ")}.</p>`
+    : "";
+
+  return `${pageHeader({ title: "Context integrity", lead: LEAD, actionsHtml: controls })}
+${verdict}
 ${skipped}
-${controls}
 ${status.audits.map(renderSource).join("\n")}
-<p><small>Results come from <code>${escapeHtml(status.script ?? "")}</code>, run on demand with
+<p class="footnote">Results come from <code>${escapeHtml(status.script ?? "")}</code>, run on demand with
 <code>--root</code> for each active source and kept for a minute. Change the source selection to
-audit other sources.</small></p>
+audit other sources.</p>
 <script>
 (function () {
   var btn = document.getElementById("ctx-run-btn");
@@ -76,33 +85,36 @@ audit other sources.</small></p>
 }
 
 function renderSource(audit: SourceAudit): string {
-  const title = `<h2>${escapeHtml(audit.displayName)}</h2>`;
   const where = audit.knowledgeRoot
-    ? `<p><small><code>${escapeHtml(audit.knowledgeRoot)}</code>${
+    ? `<span class="muted"><code>${escapeHtml(audit.knowledgeRoot)}</code>${
         audit.checkedAt ? ` · checked ${escapeHtml(audit.checkedAt)}` : ""
-      }${audit.elapsedMs !== null ? ` in ${audit.elapsedMs} ms` : ""}</small></p>`
+      }${audit.elapsedMs !== null ? ` in ${audit.elapsedMs} ms` : ""}</span>`
     : "";
-  const error = audit.error ? `<p role="alert"><mark>Problem:</mark> ${escapeHtml(audit.error)}</p>` : "";
+  const error = audit.error ? callout("bad", `<mark>Problem:</mark> ${escapeHtml(audit.error)}`, { role: "alert" }) : "";
   const report = audit.report;
-  if (!report) return `<section aria-label="${escapeHtml(audit.displayName)}">${title}${where}${error}</section>`;
-  const verdict = `<p><strong>${report.defects} defect(s)</strong> · ${report.warnings} warning(s) ·
-${report.projects_audited} project(s) audited${report.ok ? " — healthy" : ""}</p>`;
+  const head = `<div class="source-audit-head"><h2>${escapeHtml(audit.displayName)}</h2>${
+    report ? badge(report.ok ? "Healthy" : `${report.defects} defect(s)`, report.ok ? "ok" : report.defects ? "warn" : "info") : ""
+  }${where}</div>`;
+  if (!report) return `<section class="source-audit section" aria-label="${escapeHtml(audit.displayName)}">${head}${error}</section>`;
+  const verdict = `<p class="section-note"><strong>${report.defects} defect(s)</strong> · ${report.warnings} warning(s) · ${report.projects_audited} project(s) audited${report.ok ? " — healthy" : ""}</p>`;
   const coverage = Object.entries(report.coverage)
     .filter(([, row]) => row.skipped > 0)
     .map(
       ([check, row]) =>
         `${escapeHtml(check)}: examined ${row.examined}, skipped ${row.skipped} (${row.why.map(escapeHtml).join(", ")})`
     );
-  const coverageLine = coverage.length ? `<p><small>Coverage — ${coverage.join(" · ")}</small></p>` : "";
+  const coverageLine = coverage.length ? `<p class="section-note">Coverage — ${coverage.join(" · ")}</p>` : "";
   const bySeverity = (severity: string) => report.findings.filter((finding) => finding.severity === severity);
-  return `<section aria-label="${escapeHtml(audit.displayName)}">
-${title}
-${where}
+  const defects = bySeverity("defect");
+  const warnings = bySeverity("warning");
+  return `<section class="source-audit section" aria-label="${escapeHtml(audit.displayName)}">
+${head}
 ${error}
 ${verdict}
 ${coverageLine}
-${renderFindings(audit.displayName, "Defects", bySeverity("defect"))}
-${renderFindings(audit.displayName, "Warnings", bySeverity("warning"))}
+${renderFindings(audit.displayName, "Defects", defects)}
+${renderFindings(audit.displayName, "Warnings", warnings)}
+${!defects.length && !warnings.length ? `<div class="empty-inline card">${icon("checkCircle", "icon-sm")} No findings in this source.</div>` : ""}
 </section>`;
 }
 
@@ -111,14 +123,14 @@ function renderFindings(source: string, title: string, findings: ContextFinding[
   const rows = findings
     .map(
       (f) => `<tr>
-<td>${escapeHtml(f.project)}</td>
+<td class="cell-strong">${escapeHtml(f.project)}</td>
 <td><code>${escapeHtml(f.check)}</code></td>
-<td>${escapeHtml(f.message)}<br><small>→ ${escapeHtml(f.remedy)}</small></td>
+<td>${escapeHtml(f.message)}<span class="cell-sub">→ ${escapeHtml(f.remedy)}</span></td>
 </tr>`
     )
     .join("\n");
-  return `<h3>${escapeHtml(title)} (${findings.length})</h3>
-<div style="overflow-x:auto" tabindex="0" role="region" aria-label="${escapeHtml(`${source} ${title.toLowerCase()}`)}"><table>
+  return `<h3 class="findings-title"><span class="dot dot-${title === "Defects" ? "warn" : "info"}" aria-hidden="true"></span>${escapeHtml(title)} (${findings.length})</h3>
+<div class="table-wrap" tabindex="0" role="region" aria-label="${escapeHtml(`${source} ${title.toLowerCase()}`)}"><table>
 <thead><tr><th scope="col">Project</th><th scope="col">Check</th><th scope="col">Finding</th></tr></thead>
 <tbody>${rows}</tbody>
 </table></div>`;

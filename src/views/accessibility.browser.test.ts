@@ -77,12 +77,10 @@ test("keyboard focus, named controls, status meanings and AX tree are real brows
           readFileSync(resolve(import.meta.dir, "../../public/style.css")),
           { headers: { "Content-Type": "text/css" } },
         );
-      if (p === "/vendor/pico-2.1.1.min.css")
+      if (p === "/app.js")
         return new Response(
-          readFileSync(
-            resolve(import.meta.dir, "../../public/vendor/pico-2.1.1.min.css"),
-          ),
-          { headers: { "Content-Type": "text/css" } },
+          readFileSync(resolve(import.meta.dir, "../../public/app.js")),
+          { headers: { "Content-Type": "text/javascript" } },
         );
       return new Response(html, { headers: { "Content-Type": "text/html" } });
     },
@@ -218,6 +216,14 @@ test("keyboard focus, named controls, status meanings and AX tree are real brows
       );
     };
     await call("Page.enable", {}, sessionId);
+    // Desktop pass at a laptop viewport: the sidebar (brand, source picker,
+    // navigation) is in the tab order. Under 960 px it becomes a drawer; the
+    // phone pass below checks that.
+    await call(
+      "Emulation.setDeviceMetricsOverride",
+      { width: 1280, height: 900, deviceScaleFactor: 1, mobile: false },
+      sessionId,
+    );
     await call(
       "Page.navigate",
       { url: `http://127.0.0.1:${server.port}/conformance` },
@@ -313,6 +319,43 @@ test("keyboard focus, named controls, status meanings and AX tree are real brows
     expect(
       await evaluate('document.querySelectorAll("[role=listbox]").length'),
     ).toBe(0);
+
+    // Phone pass: the sidebar is a closed drawer, out of the tab order, and
+    // the menu button opens it, moves focus inside, and Escape closes it and
+    // returns focus to the button.
+    await call(
+      "Emulation.setDeviceMetricsOverride",
+      { width: 390, height: 844, deviceScaleFactor: 1, mobile: true },
+      sessionId,
+    );
+    // A fresh document, so sequential focus starts at the top of the page.
+    await call("Page.navigate", { url: "about:blank" }, sessionId);
+    await call(
+      "Page.navigate",
+      { url: `http://127.0.0.1:${server.port}/conformance?phone=1` },
+      sessionId,
+    );
+    for (let i = 0; i < 100; i++) {
+      await Bun.sleep(20);
+      if (await evaluate('location.search === "?phone=1" && document.readyState === "complete" && !!document.querySelector(".menu-btn")')) break;
+    }
+    await key("Tab", "Tab", 9);
+    expect(await evaluate("document.activeElement.textContent")).toBe("Skip to main content");
+    await key("Tab", "Tab", 9);
+    evidence.phoneSecondFocus = await evaluate("document.activeElement.className");
+    expect(evidence.phoneSecondFocus).toContain("menu-btn");
+    expect(await evaluate('document.activeElement.getAttribute("aria-expanded")')).toBe("false");
+    await key("Enter", "Enter", 13);
+    for (let i = 0; i < 50; i++) {
+      if (await evaluate('document.activeElement && document.activeElement.classList.contains("nav-link")')) break;
+      await Bun.sleep(20);
+    }
+    expect(await evaluate('document.querySelector(".app").dataset.sidebar')).toBe("open");
+    expect(await evaluate('document.activeElement.classList.contains("nav-link")')).toBeTrue();
+    expect(await evaluate('document.querySelector(".menu-btn").getAttribute("aria-expanded")')).toBe("true");
+    await key("Escape", "Escape", 27);
+    expect(await evaluate('document.querySelector(".app").dataset.sidebar')).toBe("closed");
+    expect(await evaluate('document.activeElement.classList.contains("menu-btn")')).toBeTrue();
     writeFileSync(
       join(root, "observed.json"),
       JSON.stringify(evidence, null, 2),

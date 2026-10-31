@@ -13,7 +13,10 @@ import { contextIntegrityRoutes } from "./routes/context-integrity.js";
 import { conformanceRoutes } from "./routes/conformance.js";
 import { conversationRoutes } from "./routes/conversations.js";
 import { autopilotRoutes } from "./routes/autopilot.js";
+import { todayRoutes } from "./routes/today.js";
+import { paletteRoutes } from "./routes/palette.js";
 import { layout } from "./views/layout.js";
+import { notFoundView } from "./views/source-gate.js";
 import { activeSources } from "./active-sources.js";
 import pkg from "../package.json";
 
@@ -40,22 +43,26 @@ const app = new Hono();
 // even a few seconds of cached HTML can cause the user to act on obsolete
 // information. Force-reload should not be required to see fresh data.
 //
-// Static assets (/style.css) ship from disk via serveStatic and may cache
-// normally — they only change with a redeploy.
+// Static assets (the stylesheet, the client script and the favicon) ship
+// from disk via serveStatic. They change only with an upgrade; the page
+// requests them with ?v=<version>, and "no-cache" makes the browser
+// revalidate, so an upgraded Console never paints with a stale stylesheet.
+const STATIC_ASSETS = new Set(["/style.css", "/app.js", "/favicon.svg"]);
 app.use("*", async (c, next) => {
   await next();
-  if (c.req.path === "/style.css" || c.req.path === "/favicon.svg") return;
+  if (STATIC_ASSETS.has(c.req.path)) {
+    c.res.headers.set("Cache-Control", "no-cache");
+    return;
+  }
   c.res.headers.set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
   c.res.headers.set("Pragma", "no-cache");
   c.res.headers.set("Expires", "0");
 });
 
-app.use("/style.css", serveStatic({ root: "./public" }));
-app.use("/favicon.svg", serveStatic({ root: "./public" }));
-app.use("/vendor/pico-2.1.1.min.css", serveStatic({ root: "./public" }));
+for (const asset of STATIC_ASSETS) app.use(asset, serveStatic({ root: "./public" }));
 
-app.get("/", (c) => c.redirect("/projects"));
-
+app.route("/", todayRoutes(config));
+app.route("/", paletteRoutes(config));
 app.route("/", projectRoutes(config));
 app.route("/", autopilotRoutes(config));
 app.route("/", initiativeRoutes(config));
@@ -76,8 +83,8 @@ app.notFound((c) => {
   const active = activeSources(c, config);
   return c.html(
     layout({
-      title: "Not Found",
-      content: `<h1>404 — Not Found</h1><p>The page you're looking for doesn't exist.</p><p><a href="/">Go to projects</a></p>`,
+      title: "Not found",
+      content: notFoundView({ message: "There is no page at this address." }),
       sources: config.sources,
       activeSourceNames: active.map((s) => s.name),
       demoMode: config.demoMode,

@@ -10,12 +10,12 @@
  */
 import { Hono } from "hono";
 import type { ConsoleConfig } from "../config.js";
-import { findSource } from "../config.js";
+import { findSource, displayName } from "../config.js";
 import { computePeople } from "../parsers/people.js";
 import { readPrepPack } from "../parsers/prep-pack.js";
 import { renderMarkdown } from "../parsers/markdown.js";
 import { layout } from "../views/layout.js";
-import { sourceGateView } from "../views/source-gate.js";
+import { sourceGateView, notFoundView } from "../views/source-gate.js";
 import { peopleView } from "../views/people.js";
 import { prepView } from "../views/prep.js";
 import { sanitizePathSegment } from "../utils.js";
@@ -48,8 +48,8 @@ export function peopleRoutes(config: ConsoleConfig): Hono {
     if (!sourceName || !slug) {
       return c.html(
         layout({
-          title: "Not Found",
-          content: `<h1>404</h1><p>Invalid prep pack path.</p>`,
+          title: "Not found",
+          content: notFoundView({ message: "That is not a prep pack address.", backHref: "/people", backLabel: "Back to People" }),
           sources: config.sources,
           activeSourceNames: active.map((s) => s.name),
           demoMode: config.demoMode,
@@ -74,8 +74,8 @@ export function peopleRoutes(config: ConsoleConfig): Hono {
     if (!pack) {
       return c.html(
         layout({
-          title: "Not Found",
-          content: `<h1>404</h1><p>Prep pack not found.</p><p><a href="/people">Back to People</a></p>`,
+          title: "Not found",
+          content: notFoundView({ message: "No prep pack with that name in this source.", backHref: "/people", backLabel: "Back to People" }),
           sources: config.sources,
           activeSourceNames: active.map((s) => s.name),
           demoMode: config.demoMode,
@@ -86,11 +86,16 @@ export function peopleRoutes(config: ConsoleConfig): Hono {
     return c.html(
       layout({
         title: `Prep — ${pack.entry.title}`,
-        content: prepView({ entry: pack.entry, contentHtml: renderMarkdown(pack.raw) }),
+        content: prepView({ entry: pack.entry, contentHtml: renderMarkdown(pack.raw), sourceLabel: src ? displayName(src) : sourceName }),
         sources: config.sources,
         activeSourceNames: active.map((s) => s.name),
         currentPath: `/prep/${sourceName}/${slug}`,
         demoMode: config.demoMode,
+        crumbs: [
+          { label: "People", href: "/people" },
+          { label: `Plan ${pack.entry.date}`, href: `/plans/${encodeURIComponent(pack.entry.sourceName)}/${encodeURIComponent(pack.entry.date)}` },
+          { label: pack.entry.title },
+        ],
       })
     );
   });

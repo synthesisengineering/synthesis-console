@@ -17,6 +17,7 @@
 import MarkdownIt from "markdown-it";
 import { escapeHtml } from "../utils.js";
 import type { LedgerDoc, LedgerEntry, LedgerSection, LedgerState } from "../parsers/ledger.js";
+import { emptyState, longDate, pageHeader, sourceBadge, statTile } from "./ui.js";
 
 const md = new MarkdownIt({ html: true, linkify: true, typographer: true });
 
@@ -40,12 +41,12 @@ function renderStateChip(state: LedgerState): string {
 function renderSectionTable(s: LedgerSection): string {
   if (s.rows.length === 0) return "";
   const header = s.columns.length > 0
-    ? `<thead><tr>${s.columns.map((c) => `<th>${md.renderInline(c)}</th>`).join("")}<th></th></tr></thead>`
+    ? `<thead><tr>${s.columns.map((c) => `<th scope="col">${md.renderInline(c)}</th>`).join("")}<th scope="col"><span class="sr-only">State</span></th></tr></thead>`
     : "";
   const body = s.rows
     .map((r) => {
       const isKudos = r.cells.some((c) => KUDOS_RE.test(c));
-      const kudosTag = isKudos ? `<span class="ledger-chip ledger-chip-kudos">recognition</span>` : "";
+      const kudosTag = isKudos ? `<span class="ledger-chip ledger-chip-kudos">Recognition</span>` : "";
       const cells = r.cells.map((c) => `<td>${md.renderInline(c)}</td>`).join("");
       return `<tr class="ledger-row ledger-row-${r.state}">${cells}<td class="ledger-row-chips">${renderStateChip(r.state)}${kudosTag}</td></tr>`;
     })
@@ -71,7 +72,7 @@ function renderSection(s: LedgerSection, openByDefault: boolean): string {
 
 const OPEN_STATES: LedgerState[] = ["actionable", "decaying", "delegated"];
 
-export function ledgerView(opts: { doc: LedgerDoc; allLedgers: LedgerEntry[] }): string {
+export function ledgerView(opts: { doc: LedgerDoc; allLedgers: LedgerEntry[]; sourceLabel?: string }): string {
   const { doc } = opts;
   const openTotal = doc.openCounts.actionable + doc.openCounts.decaying + doc.openCounts.delegated;
 
@@ -79,23 +80,33 @@ export function ledgerView(opts: { doc: LedgerDoc; allLedgers: LedgerEntry[] }):
     (l) => !(l.date === doc.date && l.sourceName === doc.sourceName)
   );
   const historyLinks = otherLedgers.length > 0
-    ? `<p class="ledger-history">Other sweeps: ${otherLedgers
-        .map(
-          (l) =>
-            `<a href="/ledger/${encodeURIComponent(l.sourceName)}/${encodeURIComponent(l.date)}">${escapeHtml(l.date)}</a> <span class="source-badge">${escapeHtml(l.sourceName)}</span>`
-        )
-        .join(" · ")}</p>`
+    ? `<section class="card rail-card" aria-labelledby="history-title" style="margin-top:var(--sp-6)">
+        <h2 class="rail-title" id="history-title">Other sweeps</h2>
+        <ul class="cockpit-aside-list">${otherLedgers
+          .map(
+            (l) =>
+              `<li><a class="cockpit-aside-link" href="/ledger/${encodeURIComponent(l.sourceName)}/${encodeURIComponent(l.date)}"><span class="cockpit-aside-dot" aria-hidden="true"></span><span class="cockpit-aside-text">${escapeHtml(longDate(l.date, true))}</span><span class="cockpit-aside-suffix">${escapeHtml(l.sourceName)}</span></a></li>`
+          )
+          .join("")}</ul>
+      </section>`
     : "";
 
   const openSections = doc.sections.filter((s) => OPEN_STATES.includes(s.state));
   const closedSections = doc.sections.filter((s) => !OPEN_STATES.includes(s.state));
 
   return `
-    <hgroup>
-      <h1>Ledger — ${escapeHtml(doc.date)} <span class="source-badge">${escapeHtml(doc.sourceName)}</span></h1>
-      <p>${openTotal} open item${openTotal === 1 ? "" : "s"} (${doc.openCounts.actionable} actionable · ${doc.openCounts.decaying} decaying · ${doc.openCounts.delegated} delegated-unverified). Produced by the catch-up sweep; the console renders — the ledger file is the record.</p>
-    </hgroup>
-    ${doc.headerMarkdown ? `<div class="ledger-header rendered-markdown">${md.render(doc.headerMarkdown)}</div>` : ""}
+    ${pageHeader({
+      title: `Ledger · ${longDate(doc.date, true)}`,
+      eyebrowHtml: sourceBadge(opts.sourceLabel ?? doc.sourceName, doc.sourceName),
+      lead: "The catch-up sweep after a gap in the daily rituals. The ledger file is the record; the Console renders it.",
+    })}
+    <div class="stats">
+      ${statTile({ label: "Open", value: openTotal, tone: openTotal ? "info" : undefined, iconName: "inbox" })}
+      ${statTile({ label: "Actionable", value: doc.openCounts.actionable, iconName: "zap" })}
+      ${statTile({ label: "Decaying", value: doc.openCounts.decaying, tone: doc.openCounts.decaying ? "warn" : undefined, iconName: "clock" })}
+      ${statTile({ label: "Delegated, to verify", value: doc.openCounts.delegated, iconName: "users" })}
+    </div>
+    ${doc.headerMarkdown ? `<div class="card ledger-header rendered-markdown">${md.render(doc.headerMarkdown)}</div>` : ""}
     ${openSections.map((s) => renderSection(s, true)).join("\n")}
     ${closedSections.map((s) => renderSection(s, false)).join("\n")}
     ${historyLinks}
@@ -104,9 +115,11 @@ export function ledgerView(opts: { doc: LedgerDoc; allLedgers: LedgerEntry[] }):
 
 export function ledgerEmptyView(): string {
   return `
-    <hgroup>
-      <h1>Ledger</h1>
-      <p>No catch-up ledgers found in the active sources. Ledgers are produced by the synthesis-catchup-ledger skill after a gap in the daily-ritual cadence and live in a source's <code>catchup-ledgers/</code> directory.</p>
-    </hgroup>
+    ${pageHeader({ title: "Ledger", lead: "The catch-up sweep after a gap in the daily rituals." })}
+    ${emptyState({
+      icon: "ledger",
+      title: "No catch-up ledgers",
+      bodyHtml: "Ledgers are produced by the synthesis-catchup-ledger skill after a gap in the daily-ritual cadence and live in a source's <code>catchup-ledgers/</code> directory.",
+    })}
   `;
 }

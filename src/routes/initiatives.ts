@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { existsSync, readdirSync } from "fs";
 import { join } from "path";
 import type { ConsoleConfig, Source } from "../config.js";
-import { getProjectPath, findSource } from "../config.js";
+import { getProjectPath, findSource, displayName } from "../config.js";
 import {
   loadInitiativesFromSources,
   loadProjectsFromSources,
@@ -10,7 +10,9 @@ import {
 } from "../parsers/yaml.js";
 import type { InitiativeWithSource, ProjectWithSource } from "../parsers/yaml.js";
 import { layout } from "../views/layout.js";
-import { sourceGateView } from "../views/source-gate.js";
+import { sourceGateView, notFoundView } from "../views/source-gate.js";
+import { computePortfolioLanes } from "../parsers/portfolio.js";
+import { annotateRecency } from "../parsers/recency.js";
 import { initiativeListView } from "../views/initiative-list.js";
 import { initiativeDetailView } from "../views/initiative-detail.js";
 import { escapeHtml, sanitizePathSegment } from "../utils.js";
@@ -24,10 +26,17 @@ export function initiativeRoutes(config: ConsoleConfig) {
     const initiatives: InitiativeWithSource[] = loadInitiativesFromSources(active);
     const projects: ProjectWithSource[] = loadProjectsFromSources(active);
 
+    const health = new Map(
+      computePortfolioLanes(active).map((lane) => [
+        `${lane.initiative._source}:${lane.initiative.id}`,
+        { health: lane.health, signals: lane.healthSignals },
+      ])
+    );
     const content = initiativeListView({
       initiatives,
       projects,
       sources: active,
+      health,
     });
 
     return c.html(
@@ -80,6 +89,8 @@ export function initiativeRoutes(config: ConsoleConfig) {
 
     const allProjects = loadProjectsFromSources([src]);
     const memberProjects = allProjects.filter((p) => p.initiative === initiativeId);
+    annotateRecency(memberProjects, config.sources);
+    const lane = computePortfolioLanes([src]).find((l) => l.initiative.id === initiativeId);
 
     // Pull recent session files across all member projects for the activity feed.
     const recentSessions: { projectId: string; projectName: string; period: string; sourceName: string }[] = [];
@@ -109,6 +120,8 @@ export function initiativeRoutes(config: ConsoleConfig) {
       memberProjects,
       recentSessions: recentSessions.slice(0, 12),
       sourceName: src.name,
+      sourceLabel: displayName(src),
+      health: lane ? { health: lane.health, signals: lane.healthSignals } : undefined,
     });
 
     return c.html(
@@ -119,6 +132,11 @@ export function initiativeRoutes(config: ConsoleConfig) {
         activeSourceNames: active.map((s) => s.name),
         currentPath: `/initiatives/${src.name}/${initiativeId}`,
         demoMode: config.demoMode,
+        crumbs: [
+          { label: "Initiatives", href: "/initiatives" },
+          { label: displayName(src) },
+          { label: initiative.name },
+        ],
       })
     );
   });
@@ -134,8 +152,8 @@ function notFound(
 ) {
   return c.html(
     layout({
-      title: "Not Found",
-      content: `<h1>Not found</h1><p>${message}</p><p><a href="/initiatives">Back to initiatives</a></p>`,
+      title: "Not found",
+      content: notFoundView({ messageHtml: message, backHref: "/initiatives", backLabel: "Back to initiatives" }),
       sources: config.sources,
       activeSourceNames: active.map((s) => s.name),
       currentPath: "/initiatives",

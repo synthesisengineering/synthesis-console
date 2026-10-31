@@ -5,10 +5,9 @@
  * composes: decision cards, task rows, draft cards, sidebar list items,
  * project list rows, progress bar.
  *
- * Extracted from `plan-cockpit.ts` in v0.9.0 so the new three-column shell
- * (`shell.ts`) and column views (`main-column.ts`, `sidebar-left.ts`,
- * `sidebar-right.ts`) can compose cards without duplicating their HTML
- * shape.
+ * Shared by the plan page's shell (`shell.ts`), main column
+ * (`main-column.ts`) and rail (`rail.ts`), so every region composes the same
+ * HTML shapes.
  *
  * Behavioral parity with v0.8.x: the existing `.cockpit-decision`,
  * `.cockpit-task`, `.cockpit-bucket`, `.draft-actions`, `.cockpit-region-*`
@@ -28,6 +27,8 @@ import type { DraftBlock } from "../../parsers/draft-blocks.js";
 import { parseTickerBody } from "../../parsers/ticker.js";
 import type { TickerItem } from "../../parsers/ticker.js";
 import { escapeHtml, escapeAttr } from "../../utils.js";
+import { icon, type IconName } from "../icons.js";
+import { progressBar } from "../ui.js";
 
 const md = new MarkdownIt({ html: true, linkify: true, typographer: true });
 
@@ -59,14 +60,23 @@ export function fmtAge(mtimeMs: number): string {
 /* Glance counts                                                              */
 /* -------------------------------------------------------------------------- */
 
-export function renderCount(label: string, openCount: number, total: number, tone: string): string {
+export function renderCount(label: string, openCount: number, total: number, tone: string, progressPct?: number): string {
   const display = total === 0 ? "0" : openCount === total ? `${total}` : `${openCount} / ${total}`;
+  const effectiveTone = total === 0 || (openCount === 0 && tone !== "done") ? "zero" : tone;
   return `
-    <span class="cockpit-count cockpit-count-${tone}" data-tone="${tone}">
+    <span class="cockpit-count cockpit-count-${effectiveTone}" data-tone="${tone}">
       <span class="cockpit-count-num">${escapeHtml(display)}</span>
       <span class="cockpit-count-label">${escapeHtml(label)}</span>
+      ${progressPct !== undefined ? progressBar(progressPct, progressPct >= 100 ? "ok" : undefined) : ""}
     </span>
   `;
+}
+
+/** A region heading: icon, title, an optional count pill and a quiet subtitle. */
+export function regionTitle(iconName: IconName, title: string, opts: { count?: string; countClass?: string; subtitle?: string; id?: string } = {}): string {
+  const count = opts.count !== undefined ? ` <span class="cockpit-region-count${opts.countClass ? ` ${opts.countClass}` : ""}">${escapeHtml(opts.count)}</span>` : "";
+  const subtitle = opts.subtitle ? ` <span class="cockpit-region-subtitle">${escapeHtml(opts.subtitle)}</span>` : "";
+  return `<h2 class="cockpit-region-title"${opts.id ? ` id="${opts.id}"` : ""}>${icon(iconName)}${escapeHtml(title)}${count}${subtitle}</h2>`;
 }
 
 /**
@@ -97,8 +107,11 @@ export interface DecisionCardOpts {
 }
 
 export function renderDecisionCard(d: Decision, opts: DecisionCardOpts): string {
+  const undo = d.decided && opts.editable && d.decidedOption
+    ? `<button type="button" class="cockpit-decision-undo btn-sm" data-decision-index="${d.index}" data-option="${escapeAttr(d.decidedOption)}" title="Reopen this decision and choose again">Change decision</button>`
+    : "";
   const decidedNote = d.decided
-    ? `<p class="cockpit-decision-decided-note">Decided: <strong>Option ${escapeHtml(d.decidedOption || "")}</strong>${d.decidedAt ? ` — ${escapeHtml(d.decidedAt)}` : ""}</p>`
+    ? `<p class="cockpit-decision-decided-note">${icon("checkCircle", "icon-sm")}<span>Decided: <strong>Option ${escapeHtml(d.decidedOption || "")}</strong>${d.decidedAt ? ` · ${escapeHtml(d.decidedAt)}` : ""}</span>${undo}</p>`
     : "";
 
   // Synthetic / no-options case: show the question + body prose verbatim,
@@ -111,6 +124,7 @@ export function renderDecisionCard(d: Decision, opts: DecisionCardOpts): string 
         <h3 class="cockpit-decision-question">${escapeHtml(d.question)}</h3>
         ${decidedNote}
         <div class="cockpit-decision-ask-body rendered-markdown">${body}</div>
+        <div class="cockpit-decision-status" role="status" aria-live="polite"></div>
       </article>
     `;
   }
@@ -127,7 +141,9 @@ export function renderDecisionCard(d: Decision, opts: DecisionCardOpts): string 
       const isRecommended = !d.decided && d.recommendationLetter === o.letter;
       const recBadge = isRecommended
         ? '<span class="cockpit-decision-rec-badge">Recommended</span>'
-        : "";
+        : isChosen
+          ? `<span class="cockpit-decision-rec-badge" style="background:var(--ok-bg);border-color:var(--ok-border);color:var(--ok)">Chosen</span>`
+          : "";
       const disabled = d.decided || !opts.editable ? " disabled" : "";
       return `
         <button type="button" class="${cls}" data-decision-index="${d.index}" data-option="${escapeAttr(o.letter)}"${disabled}>
@@ -141,7 +157,7 @@ export function renderDecisionCard(d: Decision, opts: DecisionCardOpts): string 
 
   const recommendation =
     !d.decided && d.recommendationLetter
-      ? `<p class="cockpit-decision-rec"><strong>Recommendation:</strong> Option ${escapeHtml(d.recommendationLetter)}${d.recommendationBody ? ` — ${md.renderInline(d.recommendationBody)}` : ""}</p>`
+      ? `<p class="cockpit-decision-rec"><strong>Recommendation:</strong> Option ${escapeHtml(d.recommendationLetter)}${d.recommendationBody ? ` — ${md.renderInline(d.recommendationBody.replace(/^[\s—–-]+/, ""))}` : ""}</p>`
       : "";
 
   // Inline body context (paragraphs that aren't options or recommendation).
@@ -154,7 +170,7 @@ export function renderDecisionCard(d: Decision, opts: DecisionCardOpts): string 
       <h3 class="cockpit-decision-question">${escapeHtml(d.question)}</h3>
       ${decidedNote}
       ${contextBody}
-      <div class="cockpit-decision-options" role="group" aria-label="Decision options">
+      <div class="cockpit-decision-options" role="group" aria-label="${d.decided ? "Options (decided)" : "Choose an option"}">
         ${optionButtons}
       </div>
       ${recommendation}
@@ -193,7 +209,8 @@ export function renderTaskBucket(b: TaskBucket, opts: TaskBucketOpts): string {
     <details class="cockpit-bucket cockpit-bucket-${tone}" data-bucket-semantic="${b.semantic}" data-bucket-index="${b.index}"${openAttr}>
       <summary class="cockpit-bucket-summary">
         <span class="cockpit-bucket-label">${escapeHtml(label)}</span>
-        <span class="cockpit-bucket-count">${doneCount} / ${totalCount}</span>
+        ${totalCount ? `<span class="cockpit-bucket-mini">${progressBar(totalCount ? (doneCount / totalCount) * 100 : 0, doneCount === totalCount ? "ok" : undefined)}</span>` : ""}
+        <span class="cockpit-bucket-count">${doneCount} / ${totalCount} done</span>
       </summary>
       <ol class="cockpit-task-list">
         ${tasksHtml}
@@ -416,9 +433,7 @@ export function renderNeedsYouRegion(
 
   return `
     <section class="cockpit-region cockpit-region-needs-you" data-region="needs-you" aria-label="Needs you now">
-      <h2 class="cockpit-region-title">NEEDS YOU
-        <span class="cockpit-region-count">${openCount} open</span>
-      </h2>
+      ${regionTitle("inbox", "Needs you", { count: openCount ? `${openCount} open` : "All clear", countClass: openCount ? "" : "is-clear", subtitle: "Decide, approve or skip" })}
       ${priorityWrap}
       ${batchWrap}
     </section>
@@ -460,9 +475,7 @@ export function renderTickerItem(item: TickerItem): string {
 export function renderTickerRegion(rawBody: string, openByDefault = false): string {
   const items = parseTickerBody(rawBody);
   const itemsHtml = items.map(renderTickerItem).join("\n");
-  const summary = items.length === 1
-    ? "On your behalf — 1 action"
-    : `On your behalf — ${items.length} action${items.length === 1 ? "" : "s"}`;
+  const summary = `On your behalf · ${items.length} action${items.length === 1 ? "" : "s"}`;
   const openAttr = openByDefault ? " open" : "";
   const bodyHtml = items.length > 0
     ? `<ul class="cockpit-ticker-list">${itemsHtml}</ul>`
@@ -501,29 +514,31 @@ export interface PortfolioLaneView {
   tooltip: string;
 }
 
-export function renderPortfolioStrip(lanes: PortfolioLaneView[]): string {
+const LANE_LABEL: Record<PortfolioLaneView["health"], string> = {
+  critical: "Needs attention",
+  warning: "Watch",
+  healthy: "Healthy",
+  unknown: "No signal",
+};
+
+/** The portfolio as a rail list, worst lanes first; each line names its health in words. */
+export function renderPortfolioList(lanes: PortfolioLaneView[]): string {
   if (lanes.length === 0) return "";
-  // Worst lanes first so 🔴 is never below the fold of the strip.
   const order = { critical: 0, warning: 1, healthy: 2, unknown: 3 } as const;
   const sorted = [...lanes].sort((a, b) => order[a.health] - order[b.health]);
-  const chips = sorted
+  const rows = sorted
     .map((lane) => {
       const href = `/initiatives/${encodeURIComponent(lane.sourceName)}/${encodeURIComponent(lane.initiativeId)}`;
       const title = lane.tooltip ? ` title="${escapeAttr(lane.tooltip)}"` : "";
-      return `
-        <a class="cockpit-lane cockpit-lane-${lane.health}" href="${escapeAttr(href)}"${title}>
+      return `<li><a class="cockpit-lane cockpit-lane-${lane.health}" href="${escapeAttr(href)}"${title}>
           <span class="cockpit-lane-dot" aria-hidden="true"></span>
           <span class="cockpit-lane-name">${escapeHtml(lane.initiativeName)}</span>
-          <span class="cockpit-lane-count">${lane.memberCount}</span>
-        </a>
-      `;
+          <span class="cockpit-lane-health">${escapeHtml(LANE_LABEL[lane.health])}</span>
+          <span class="cockpit-lane-count" aria-label="${lane.memberCount} projects">${lane.memberCount}</span>
+        </a></li>`;
     })
     .join("\n");
-  return `
-    <nav class="cockpit-region cockpit-region-portfolio" data-region="portfolio" aria-label="Portfolio lanes">
-      <div class="cockpit-lane-strip">${chips}</div>
-    </nav>
-  `;
+  return `<nav class="cockpit-region-portfolio" data-region="portfolio" aria-label="Portfolio lanes"><ul class="cockpit-aside-list">${rows}</ul></nav>`;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -680,9 +695,7 @@ export function renderTodayRegion(opts: {
 
   return `
     <section class="cockpit-region cockpit-region-today-slots" data-region="today" aria-label="Today's deep work">
-      <h2 class="cockpit-region-title">TODAY
-        <span class="cockpit-region-subtitle">${opts.slots.length > 0 ? `${opts.slots.length} deep slot${opts.slots.length === 1 ? "" : "s"}` : "budget"}</span>
-      </h2>
+      ${regionTitle("clock", "Today", { subtitle: opts.slots.length > 0 ? `${opts.slots.length} deep-work slot${opts.slots.length === 1 ? "" : "s"}${opts.events.length ? ` · ${opts.events.length} event${opts.events.length === 1 ? "" : "s"}` : ""}` : "Time budget" })}
       ${opts.budget ? renderBudgetBar(opts.budget) : ""}
       ${calendarHtml}
       ${slotsHtml}
@@ -712,10 +725,7 @@ export function renderBriefRegion(rawBody: string): string {
   const bodyHtml = md.render(trimmed);
   return `
     <section class="cockpit-region cockpit-region-brief" data-region="brief" aria-label="Morning brief">
-      <h2 class="cockpit-region-title">
-        BRIEF
-        <span class="cockpit-region-subtitle">≤90 seconds</span>
-      </h2>
+      ${regionTitle("brief", "Brief", { subtitle: "90-second read" })}
       <div class="cockpit-brief-body rendered-markdown">${bodyHtml}</div>
     </section>
   `;
@@ -750,14 +760,16 @@ export function renderDraftsRegion(draftsHtml: string): string {
   if (!draftsHtml || draftsHtml.trim() === "") {
     return `
       <section class="cockpit-region cockpit-region-drafts cockpit-region-empty" data-region="drafts" aria-label="Drafts">
-        <h2 class="cockpit-region-title">DRAFTS</h2>
+        ${regionTitle("send", "Drafts")}
         <p class="cockpit-region-empty-msg">No drafts in this plan.</p>
       </section>
     `;
   }
+  const pending = countDrafts(draftsHtml);
+  const sent = countSentToday(draftsHtml);
   return `
     <section class="cockpit-region cockpit-region-drafts" data-region="drafts" aria-label="Drafts">
-      <h2 class="cockpit-region-title">DRAFTS</h2>
+      ${regionTitle("send", "Drafts", { count: pending ? `${pending} to review` : "None pending", subtitle: sent ? `${sent} sent` : undefined })}
       <div class="cockpit-drafts-body rendered-markdown">${draftsHtml}</div>
     </section>
   `;

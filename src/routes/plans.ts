@@ -1,11 +1,11 @@
 import { Hono, type Context } from "hono";
-import { existsSync, readdirSync, readFileSync, writeFileSync, renameSync, statSync } from "fs";
+import { existsSync, readFileSync, writeFileSync, renameSync, statSync } from "fs";
 import { join } from "path";
 import type { ConsoleConfig, Source } from "../config.js";
-import { getPlansPath, findSource, getSlackToken } from "../config.js";
+import { getPlansPath, findSource, getSlackToken, displayName } from "../config.js";
 import { readAndRenderPlanMarkdown, readAndRenderPlanForCockpit } from "../parsers/markdown.js";
 import { replaceDraftBody, findDraftBlocks, markDraftAsSent, markDraftAsSkipped, unmarkDraftAsSkipped } from "../parsers/draft-blocks.js";
-import { recordDecision, markTaskDone, unmarkTaskDone } from "../parsers/plan-mutations.js";
+import { recordDecision, reopenDecision, markTaskDone, unmarkTaskDone } from "../parsers/plan-mutations.js";
 import { loadProjectsFromSources } from "../parsers/yaml.js";
 import { computePortfolioLanes } from "../parsers/portfolio.js";
 import { parseBudget } from "../parsers/budget.js";
@@ -15,7 +15,9 @@ import { loadSlackDirectory } from "../parsers/slack-directory.js";
 import { resolveMentions, listResolvedMentions } from "../parsers/slack-mentions.js";
 import { postSlackMessage } from "../integrations/slack-send.js";
 import { layout } from "../views/layout.js";
-import { sourceGateView } from "../views/source-gate.js";
+import { sourceGateView, notFoundView } from "../views/source-gate.js";
+import { loadPlansFromSource } from "../parsers/entries.js";
+import { longDate } from "../views/ui.js";
 import { planListView, planDetailView } from "../views/plan.js";
 import { planCockpitView } from "../views/plan-cockpit.js";
 import { planRolloverView } from "../views/plan-rollover.js";
@@ -23,17 +25,6 @@ import { findCarryoverTasks, countCarryoverTasks } from "../parsers/plan-rollove
 import type { PlanEntry } from "../views/plan.js";
 import { escapeHtml, sanitizePathSegment } from "../utils.js";
 import { activeSources, isSourceActive } from "../active-sources.js";
-
-const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-
-function parsePlanFilename(filename: string, sourceName: string): PlanEntry | null {
-  const match = filename.match(/^(\d{4}-\d{2}-\d{2})\.md$/);
-  if (!match) return null;
-  const date = match[1];
-  const [y, m, d] = date.split("-").map(Number);
-  const dayOfWeek = DAYS[new Date(y, m - 1, d).getDay()];
-  return { date, filename, dayOfWeek, source: sourceName };
-}
 
 /**
  * Whether a plan's date is within `n` days of the reference date (inclusive).
@@ -50,23 +41,6 @@ function withinDays(planDate: string, refDate: string, n: number): boolean {
   return diffMs / oneDay <= n;
 }
 
-function loadPlansFromSource(src: Source): PlanEntry[] {
-  const plansDir = getPlansPath(src);
-  if (!plansDir || !existsSync(plansDir)) return [];
-
-  const files = readdirSync(plansDir)
-    .filter((f) => f.endsWith(".md"))
-    .sort()
-    .reverse();
-
-  const out: PlanEntry[] = [];
-  for (const f of files) {
-    const entry = parsePlanFilename(f, src.name);
-    if (entry) out.push(entry);
-  }
-  return out;
-}
-
 export function planRoutes(config: ConsoleConfig) {
   const app = new Hono();
 
@@ -78,7 +52,7 @@ export function planRoutes(config: ConsoleConfig) {
     }
     plans.sort((a, b) => b.date.localeCompare(a.date));
 
-    const content = planListView({ plans, sources: active });
+    const content = planListView({ plans, sources: active, month: c.req.query("month") });
 
     return c.html(
       layout({
@@ -145,6 +119,7 @@ export function planRoutes(config: ConsoleConfig) {
         activeSourceNames: active.map((s) => s.name),
         currentPath: `/plans/${src.name}/rollover`,
         demoMode: config.demoMode,
+        crumbs: [{ label: "Daily plans", href: "/plans" }, { label: displayName(src) }, { label: "Rollover" }],
       })
     );
   });
@@ -254,7 +229,7 @@ export function planRoutes(config: ConsoleConfig) {
       ? planCockpitView({
           date,
           sourceName: src.name,
-          sourceDisplayName: src.display_name,
+          sourceDisplayName: displayName(src),
           sections: cockpitBundle.sections,
           draftsHtml: cockpitBundle.draftsHtml,
           fullMarkdownHtml: cockpitBundle.fullHtml,
@@ -277,6 +252,7 @@ export function planRoutes(config: ConsoleConfig) {
           date,
           contentHtml: cockpitBundle.fullHtml + (cockpitBundle.directoryIslandHtml || ""),
           sourceName: src.name,
+          sourceLabel: displayName(src),
           prevDate,
           nextDate,
         });
@@ -289,11 +265,10 @@ export function planRoutes(config: ConsoleConfig) {
         activeSourceNames: active.map((s) => s.name),
         currentPath: `/plans/${src.name}/${date}`,
         demoMode: config.demoMode,
-        // The cockpit shell uses the wider container so the three columns
-        // have room. The legacy planDetailView fallback stays at standard
-        // width — its single-column markdown render doesn't need extra
-        // horizontal space.
+        // The plan page uses the wide container for its main column and rail;
+        // the legacy single-markdown fallback keeps the standard width.
         wide: hasRecognized,
+        crumbs: [{ label: "Daily plans", href: "/plans" }, { label: longDate(date, true) }],
       })
     );
   });
@@ -610,6 +585,45 @@ export function planRoutes(config: ConsoleConfig) {
     return c.json({ ok: true, decidedAtIso });
   });
 
+  // Reopen a recorded decision so it can be decided again. Compare-and-swap
+  // on the option the page showed as decided: a 409 means the file changed.
+  app.post("/plans/:source/:date/decision/:index/undo", async (c) => {
+    const { filePath, error } = resolveWriteTarget(c, config);
+    if (error) return error;
+    const idx = parseIndexParam(c.req.param("index"));
+    if (idx === null) return c.json({ ok: false, error: "Invalid decision index." }, 400);
+
+    let body: { option?: unknown };
+    try {
+      body = (await c.req.json()) as typeof body;
+    } catch {
+      return c.json({ ok: false, error: "Invalid JSON body." }, 400);
+    }
+    const option = typeof body.option === "string" ? body.option.trim().toUpperCase() : "";
+    if (option && !/^[A-Z]$/.test(option)) {
+      return c.json({ ok: false, error: "Invalid option." }, 400);
+    }
+
+    let raw: string;
+    try {
+      raw = readFileSync(filePath, "utf-8");
+    } catch {
+      return c.json({ ok: false, error: "Could not read plan file." }, 500);
+    }
+
+    const result = reopenDecision(raw, idx, option);
+    if (!result.ok) {
+      const status = result.reason === "not-found" ? 404 : result.reason === "conflict" || result.reason === "not-decided" ? 409 : 400;
+      return c.json({ ok: false, error: mutationFailureMessage(result.reason, result.message) }, status);
+    }
+
+    if (!writeAtomic(filePath, result.newRaw)) {
+      return c.json({ ok: false, error: "Could not write plan file." }, 500);
+    }
+
+    return c.json({ ok: true });
+  });
+
   app.post("/plans/:source/:date/task/:index/done", async (c) => {
     const { src, filePath, error } = resolveWriteTarget(c, config);
     if (error) return error;
@@ -890,6 +904,8 @@ function mutationFailureMessage(reason: string, message?: string): string {
       return "The file changed since this page was loaded. Reload the page and try again.";
     case "already-decided":
       return "This decision has already been recorded.";
+    case "not-decided":
+      return "This decision is not recorded as decided.";
     case "already-done":
       return "This task is already marked done.";
     case "not-done":
@@ -971,8 +987,8 @@ function notFound(
 ) {
   return c.html(
     layout({
-      title: "Not Found",
-      content: `<h1>Not found</h1><p>${message}</p><p><a href="/plans">Back to plans</a></p>`,
+      title: "Not found",
+      content: notFoundView({ messageHtml: message, backHref: "/plans", backLabel: "Back to daily plans" }),
       sources: config.sources,
       activeSourceNames: active.map((s) => s.name),
       currentPath: "/plans",

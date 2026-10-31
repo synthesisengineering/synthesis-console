@@ -1,61 +1,38 @@
 import { Hono } from "hono";
-import { existsSync, readdirSync } from "fs";
 import { join } from "path";
 import type { ConsoleConfig, Source } from "../config.js";
-import { getLessonsPath, findSource } from "../config.js";
+import { getLessonsPath, findSource, displayName } from "../config.js";
 import { readAndRenderMarkdown } from "../parsers/markdown.js";
+import { loadLessonsFromSource, parseLessonFilename } from "../parsers/entries.js";
 import { layout } from "../views/layout.js";
-import { sourceGateView } from "../views/source-gate.js";
+import { sourceGateView, notFoundView } from "../views/source-gate.js";
 import { lessonListView, lessonDetailView } from "../views/lesson.js";
 import type { LessonEntry } from "../views/lesson.js";
 import { escapeHtml, sanitizePathSegment } from "../utils.js";
 import { activeSources, isSourceActive } from "../active-sources.js";
-
-function parseLessonFilename(filename: string): Omit<LessonEntry, "source"> | null {
-  const match = filename.match(/^(\d{4}-\d{2}-\d{2})-(.+)\.md$/);
-  if (!match) return null;
-
-  const date = match[1];
-  const slug = match[2];
-  const title = slug
-    .split("-")
-    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-    .join(" ");
-
-  return { slug: filename.replace(".md", ""), filename, date, title };
-}
-
-function loadLessonsFromSource(src: Source): LessonEntry[] {
-  const dir = getLessonsPath(src);
-  if (!dir || !existsSync(dir)) return [];
-
-  const files = readdirSync(dir)
-    .filter((f) => f.endsWith(".md"))
-    .sort()
-    .reverse();
-
-  const out: LessonEntry[] = [];
-  for (const f of files) {
-    const entry = parseLessonFilename(f);
-    if (entry) out.push({ ...entry, source: src.name });
-  }
-  return out;
-}
 
 export function lessonRoutes(config: ConsoleConfig) {
   const app = new Hono();
 
   app.get("/lessons", (c) => {
     const active = activeSources(c, config);
-    const lessons: LessonEntry[] = [];
+    const all: LessonEntry[] = [];
     for (const src of active) {
-      lessons.push(...loadLessonsFromSource(src));
+      all.push(...loadLessonsFromSource(src));
     }
-    lessons.sort((a, b) => b.date.localeCompare(a.date));
+    all.sort((a, b) => b.date.localeCompare(a.date));
+
+    // ?q= filters by title on the server too, so a palette deep link or a
+    // bookmark opens already filtered; the page then filters as you type.
+    const query = (c.req.query("q") ?? "").slice(0, 200);
+    const q = query.trim().toLowerCase();
+    const lessons = q ? all.filter((l) => l.title.toLowerCase().includes(q)) : all;
 
     const content = lessonListView({
       lessons,
       sources: active,
+      query,
+      total: all.length,
     });
 
     return c.html(
@@ -111,7 +88,7 @@ export function lessonRoutes(config: ConsoleConfig) {
       ? { ...parsed, source: src.name }
       : { slug, filename: `${slug}.md`, date: "", title: slug, source: src.name };
 
-    const content = lessonDetailView({ lesson, contentHtml });
+    const content = lessonDetailView({ lesson, contentHtml, sourceLabel: displayName(src) });
 
     return c.html(
       layout({
@@ -121,6 +98,7 @@ export function lessonRoutes(config: ConsoleConfig) {
         activeSourceNames: active.map((s) => s.name),
         currentPath: `/lessons/${src.name}/${slug}`,
         demoMode: config.demoMode,
+        crumbs: [{ label: "Lessons", href: "/lessons" }, { label: lesson.title }],
       })
     );
   });
@@ -136,8 +114,8 @@ function notFound(
 ) {
   return c.html(
     layout({
-      title: "Not Found",
-      content: `<h1>Not found</h1><p>${message}</p><p><a href="/lessons">Back to lessons</a></p>`,
+      title: "Not found",
+      content: notFoundView({ messageHtml: message, backHref: "/lessons", backLabel: "Back to lessons" }),
       sources: config.sources,
       activeSourceNames: active.map((s) => s.name),
       currentPath: "/lessons",

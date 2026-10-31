@@ -1,4 +1,4 @@
-import { Hono, type MiddlewareHandler } from "hono";
+import { Hono, type Context, type MiddlewareHandler } from "hono";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import type { ConsoleConfig } from "../config.js";
@@ -25,26 +25,36 @@ function validSession(value: string): boolean {
 }
 
 /**
+ * Why a request may not read run records, or null when it may. Loopback
+ * only: a rebinding page on another origin must not read run records. Shared
+ * with the Today page, which lists open runs.
+ */
+export function autopilotReadRefusal(c: Context): { error: string; status: 421 | 403 } | null {
+  const url = new URL(c.req.url);
+  const host = c.req.header("host");
+  let hostname: string;
+  try {
+    hostname = host ? new URL("http://" + host).hostname : url.hostname;
+  } catch {
+    return { error: "Invalid host.", status: 421 };
+  }
+  if (!["localhost", "127.0.0.1", "[::1]"].includes(hostname)) {
+    return { error: "Autopilot reads require a loopback host.", status: 421 };
+  }
+  const origin = c.req.header("origin");
+  if (origin && origin !== url.origin) return { error: "Cross-origin autopilot reads are refused.", status: 403 };
+  return null;
+}
+
+/**
  * Autopilot routes over v5's run records. Reads only. In demo mode no machine
  * state is read at all.
  */
 export function autopilotRoutes(config: ConsoleConfig, stateDir = autopilotStateDir()) {
   const app = new Hono();
-  // Loopback only: a rebinding page on another origin must not read run records.
   const localRead: MiddlewareHandler = async (c, next) => {
-    const url = new URL(c.req.url);
-    const host = c.req.header("host");
-    let hostname: string;
-    try {
-      hostname = host ? new URL("http://" + host).hostname : url.hostname;
-    } catch {
-      return c.json({ error: "Invalid host." }, 421);
-    }
-    if (!["localhost", "127.0.0.1", "[::1]"].includes(hostname)) {
-      return c.json({ error: "Autopilot reads require a loopback host." }, 421);
-    }
-    const origin = c.req.header("origin");
-    if (origin && origin !== url.origin) return c.json({ error: "Cross-origin autopilot reads are refused." }, 403);
+    const refusal = autopilotReadRefusal(c);
+    if (refusal) return c.json({ error: refusal.error }, refusal.status);
     await next();
     c.header("Cache-Control", "no-store");
   };

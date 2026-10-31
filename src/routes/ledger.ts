@@ -9,12 +9,12 @@
  */
 import { Hono } from "hono";
 import type { ConsoleConfig } from "../config.js";
-import { findSource } from "../config.js";
+import { findSource, displayName } from "../config.js";
 import { listLedgers, readLedger } from "../parsers/ledger.js";
 import type { LedgerEntry } from "../parsers/ledger.js";
 import { layout } from "../views/layout.js";
 import { ledgerView, ledgerEmptyView } from "../views/ledger.js";
-import { sourceGateView } from "../views/source-gate.js";
+import { sourceGateView, notFoundView } from "../views/source-gate.js";
 import { sanitizePathSegment } from "../utils.js";
 import { activeSources, isSourceActive } from "../active-sources.js";
 
@@ -31,7 +31,7 @@ export function ledgerRoutes(config: ConsoleConfig): Hono {
     return c.html(
       layout({
         title: "Ledger",
-        content: doc ? ledgerView({ doc, allLedgers: all }) : ledgerEmptyView(),
+        content: doc ? ledgerView({ doc, allLedgers: all, sourceLabel: src ? displayName(src) : undefined }) : ledgerEmptyView(),
         sources: config.sources,
         activeSourceNames: active.map((s) => s.name),
         currentPath: "/ledger",
@@ -61,8 +61,8 @@ export function ledgerRoutes(config: ConsoleConfig): Hono {
     if (!doc) {
       return c.html(
         layout({
-          title: "Not Found",
-          content: `<h1>404</h1><p>Ledger not found.</p><p><a href="/ledger">Back to Ledger</a></p>`,
+          title: "Not found",
+          content: notFoundView({ message: "No ledger for that date in this source.", backHref: "/ledger", backLabel: "Back to Ledger" }),
           sources: config.sources,
           activeSourceNames: active.map((s) => s.name),
           demoMode: config.demoMode,
@@ -75,11 +75,12 @@ export function ledgerRoutes(config: ConsoleConfig): Hono {
     return c.html(
       layout({
         title: `Ledger — ${date}`,
-        content: ledgerView({ doc, allLedgers: all }),
+        content: ledgerView({ doc, allLedgers: all, sourceLabel: src ? displayName(src) : undefined }),
         sources: config.sources,
         activeSourceNames: active.map((s) => s.name),
         currentPath: `/ledger/${sourceName}/${date}`,
         demoMode: config.demoMode,
+        crumbs: [{ label: "Ledger", href: "/ledger" }, { label: date ?? "" }],
       })
     );
   });

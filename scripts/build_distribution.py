@@ -54,7 +54,7 @@ def dependency_licenses(source, package, metadata):
     (package / "THIRD-PARTY-NOTICES.md").write_text(
         "# Bundled runtime dependencies\n\n"
         + "\n".join(sorted(notices))
-        + "\n\nPico CSS 2.1.1 notices are in public/vendor.\n"
+        + "\n"
     )
 
 

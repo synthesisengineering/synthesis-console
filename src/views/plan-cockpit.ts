@@ -1,26 +1,19 @@
 /**
- * Cockpit view for daily plan detail pages.
+ * Cockpit view for daily plan detail pages: a thin shim over the plan-page
+ * shell at `cockpit/shell.ts`, which composes
  *
- * v0.9.0+: thin shim that forwards to the three-column shell view at
- * `cockpit/shell.ts`. The composition is:
+ *   planCockpitShellView(opts)
+ *     → header, day-at-a-glance counts and view tools
+ *     → renderMainColumn (needs you / brief / today / must do / this week /
+ *                         drafts / prep packs / on your behalf / more)
+ *     → renderPlanRail    (calendar / portfolio / wins / waiting on / ledger)
  *
- *   planCockpitView(opts)
- *     → planCockpitShellView(opts)
- *       → renderSidebarLeft (calendar + projects)
- *       → renderMainColumn  (date / progress / tools / MUST DO / DO THIS WEEK / DRAFTS / MORE)
- *       → renderSidebarRight (wins + waiting on)
+ * Card primitives (decision card, task row, one-tap draft, region title,
+ * rail rows) live in `cockpit/cards.ts`; the day's counts in
+ * `cockpit/summary.ts`, shared with the Today page.
  *
- * Card primitives (decision card, task row, draft pass-through, sidebar
- * row, project list row, progress bar) live in `cockpit/cards.ts` and are
- * shared across the three column views.
- *
- * Below 1024px the shell collapses to single-column with the sidebars
- * rendered as `<details>` elements above the main content. CSS handles the
- * adaptation; no JS state.
- *
- * The exported `PlanCockpitOpts` shape is backwards-compatible with v0.8 —
- * routes that don't pass `projects` or `plansForCalendar` get empty
- * sidebars but the page still renders correctly.
+ * Under 960px the rail stacks below the main column; CSS handles the
+ * adaptation from one HTML tree.
  */
 import { planCockpitShellView } from "./cockpit/shell.js";
 import type { PlanCockpitShellOpts } from "./cockpit/shell.js";
