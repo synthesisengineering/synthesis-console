@@ -52,6 +52,15 @@ test('cleanup inventory failure latches admission and still attempts exact owned
   const refused=await owner.run('/nonexistent/refused-before-launch',[],{timeoutMs:100,maxOutputBytes:1024});expect(refused.kind).toBe('cleanup');expect(refused.detail).toContain('Previous helper');
  }finally{cleanup(f);}
 });
+test('a refused group stops refusing once the OS shows it gone',async()=>{
+ let groupLive=true;const owner=new FiniteCommandOwner({live(){return groupLive;},signal(){}});const f=fixture('timeout');
+ try{const first=await owner.run('python3',['-B',f.script,f.record,f.mode],{timeoutMs:300,maxOutputBytes:1024});
+  expect(first.cleanupComplete).toBe(false);expect(owner.unresolvedCount).toBe(1);
+  expect((await owner.run('/nonexistent/refused',[],{timeoutMs:100,maxOutputBytes:1024})).detail).toContain('Previous helper');
+  groupLive=false;const next=await owner.run('python3',['-c','print("ok",end="")'],{timeoutMs:3000,maxOutputBytes:1024});
+  expect(owner.unresolvedCount).toBe(0);expect(next.kind).toBe('success');expect(next.stdout).toBe('ok');}
+ finally{cleanup(f);}
+},6000);
 test('signal failure reports unresolved custody, never a completed timeout',async()=>{
  const owner=new FiniteCommandOwner({live(){return true;},signal(){throw Object.assign(new Error('fixture signal denied'),{code:'EPERM'});}});const f=fixture('timeout');
  try{const result=await owner.run('python3',['-B',f.script,f.record,f.mode],{timeoutMs:500,maxOutputBytes:1024});expect(result.kind).toBe('cleanup');expect(result.cleanupComplete).toBe(false);expect(owner.unresolvedCount).toBe(1);}
