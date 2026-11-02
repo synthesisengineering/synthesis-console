@@ -24,7 +24,9 @@ function liveGroup(pid:number):boolean {
  return live;
 }
 const custody:Custody={signal(pid){try{process.kill(-pid,'SIGKILL');}catch(e:any){if(e.code!=='ESRCH' && !(e.code==='EPERM'&&!liveGroup(pid)))throw e;}},live:liveGroup};
-/** One owner retains unresolved slots, refusing new work after failed cleanup.
+/** One owner retains unresolved slots, refusing new work after failed cleanup until the OS
+ * shows the group gone: each new request reads it again (2026-11-02: one missed cleanup
+ * had refused every repo-guard scan for three days, long after its group was gone).
  * The dependency seam permits error-path tests; production uses OS primitives.
  */
 export class FiniteCommandOwner {
@@ -33,6 +35,7 @@ export class FiniteCommandOwner {
  get unresolvedCount(){return this.unresolved.size;}
  async run(executable:string,args:string[],options:FiniteOptions):Promise<FiniteResult>{
   const empty=(kind:FiniteKind,detail:string,cleanupComplete=true):FiniteResult=>({kind,detail,cleanupComplete,code:null,signal:null,stdout:'',stderr:''});
+  for(const pid of this.unresolved){try{if(!this.os.live(pid))this.unresolved.delete(pid);}catch{}}
   if(this.unresolved.size)return empty('cleanup','Previous helper cleanup is unresolved; new helpers are refused.',false);
   if(process.platform!=='darwin'&&process.platform!=='linux')return empty('launch','Finite helper process-group custody is unavailable on this platform.');
   if(!Number.isSafeInteger(options.timeoutMs)||options.timeoutMs<1||!Number.isSafeInteger(options.maxOutputBytes)||options.maxOutputBytes<1)return empty('launch','Invalid finite helper bounds.');
