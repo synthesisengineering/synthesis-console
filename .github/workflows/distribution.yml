@@ -52,3 +52,13 @@ jobs:
       - run: bun test
       - run: bun run typecheck
       - run: python -B -m pytest scripts/test_distribution.py scripts/test_packaging_provenance.py scripts/test_autostart_uninstall.py scripts/test_service_finite.py -q
+
+  ci:
+    # The one check branch protection requires on main: it runs after every other job, even when one fails, and passes
+    # only when all of them passed, so the matrix can change without touching the repository's settings.
+    if: always()
+    needs: [consumers]
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - run: test "${{ needs.consumers.result }}" = success
