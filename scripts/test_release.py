@@ -80,6 +80,7 @@ class World:
         self.answer_once = {}  # "release create" -> the error GitHub answers once, after it acted
         self.build_error = ""
         self.corrupt = ""  # the asset GitHub serves with other bytes
+        self.crash = ""  # the gh command during which the run is interrupted
         self.clone = None
         self.checked_out = ""
         self.local_tags = []
@@ -91,6 +92,9 @@ class World:
         if argv[0] == "git":
             return self.git(argv, env)
         if argv[0] == "gh":
+            if self.crash and " ".join(argv[1:3]) == self.crash:
+                self.crash = ""
+                raise KeyboardInterrupt
             failure = self.answer_once.pop(" ".join(argv[1:3]), None)
             answer = self.gh(argv[1:])
             return done("", failure, 1) if failure else answer
@@ -417,6 +421,14 @@ class ReleaseTests(unittest.TestCase):
         self.assertNotIn(VERSION, self.world.tags)
         self.assertEqual(self.ran("gh", "release", "edit"), [])
         self.assertEqual(self.ran("gh", "pr", "create"), [])
+
+    def test_an_interrupted_run_deletes_its_draft_and_stops(self):
+        self.world.crash = "release download"
+        with self.assertRaises(KeyboardInterrupt):
+            self.release()
+        self.assertEqual(self.world.releases, {}, "its own draft is deleted, so a run again starts clean")
+        self.assertNotIn(VERSION, self.world.tags)
+        self.assertEqual(self.ran("gh", "release", "edit"), [])
 
     def test_a_failed_build_publishes_nothing(self):
         self.world.build_error = "error: lockfile had changes, but lockfile is frozen"

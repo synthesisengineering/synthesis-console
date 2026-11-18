@@ -572,6 +572,10 @@ def main(argv=None, run=run_command, sleep=time.sleep) -> int:
     except ReleaseError as exc:
         print("\n".join(lines + [f"stopped: {exc}"] + ([discard_draft(run, version)] if drafted and not public else [])))
         return 1
+    except BaseException:  # an error this tool did not foresee, or an interrupt: its draft goes too, then it is raised
+        if drafted and not public:
+            print(discard_draft(run, version), flush=True)
+        raise
     finally:
         shutil.rmtree(folder, ignore_errors=True)
     print("\n".join(lines + npm_step(output, version) + [f"release complete: v{version}"]))
