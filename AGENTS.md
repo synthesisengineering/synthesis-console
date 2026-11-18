@@ -122,3 +122,38 @@ Query params:
 - No React, no JSX, no build step for content
 - `demoMode` boolean threaded from config through routes to views
 - Source badges shown on every merged list view; detail pages breadcrumb the source
+
+## Verification
+
+CI runs exactly what you run locally, and it is the only gate:
+
+```bash
+bun install --frozen-lockfile --ignore-scripts
+bun test
+bun run typecheck
+python3 -B -m pytest scripts -q
+```
+
+`bun test` includes a browser test that needs `SYNTHESIS_TEST_CHROMIUM` set to a
+Chrome or Chromium binary; it fails rather than skips without one.
+`.github/workflows/distribution.yml` runs these on Linux and macOS on every pull
+request and on every push to `main`, with Bun 1.3.13, Node 24, Python 3.12 and a
+headless Chrome. Its `ci` job passes only when every job before it passed. It is
+the one check branch protection requires on `main`, admins included, so the jobs
+can change without touching the repository's settings.
+
+Write the test first: a change to a route, a view, a parser or a script comes with
+a test that fails without the change.
+
+## Changes and releases
+
+- Every change reaches `main` through a pull request whose `ci` check passed.
+- A merge to `main` publishes nothing.
+- A release changes the version in `package.json` in a pull request. After it
+  merges, the merge commit is tagged `v<version>`, and
+  `python3 scripts/build_distribution.py --output <a new directory>` builds the
+  release archive, its installer, `release.json` and the npm package from a clean
+  checkout of that tag; it refuses any other source. The archive, installer and
+  `release.json` go to the GitHub release for the tag, and the npm package is
+  published as `@synthesiswork/console`. Tagging and publishing are done by hand,
+  each with the owner's approval.
