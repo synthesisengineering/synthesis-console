@@ -149,11 +149,35 @@ a test that fails without the change.
 
 - Every change reaches `main` through a pull request whose `ci` check passed.
 - A merge to `main` publishes nothing.
-- A release changes the version in `package.json` in a pull request. After it
-  merges, the merge commit is tagged `v<version>`, and
-  `python3 scripts/build_distribution.py --output <a new directory>` builds the
-  release archive, its installer, `release.json` and the npm package from a clean
-  checkout of that tag; it refuses any other source. The archive, installer and
-  `release.json` go to the GitHub release for the tag, and the npm package is
-  published as `@synthesiswork/console`. Tagging and publishing are done by hand,
-  each with the owner's approval.
+- A release changes the version in `package.json` in a pull request, with its
+  `CHANGELOG.md` entry if the repository keeps one. After it merges, the release
+  tool makes the release, from a clean checkout of `main`:
+
+  ```bash
+  python3 scripts/release.py --output <a new directory> --dry-run   # the checks and the plan; changes nothing
+  python3 scripts/release.py --output <a new directory>             # the release
+  ```
+
+  It refuses, before anything is published, unless the tree is clean, HEAD is the
+  tip of GitHub's `main` with CI passed for it there, and GitHub has no tag and no
+  release for the version yet, nor a higher version tag. Then it works from a
+  fresh clone of the repository from GitHub at that commit: it tags the clone
+  `v<version>`, builds it with `scripts/build_distribution.py` (which builds only
+  an exactly tagged clean checkout), creates the GitHub release as a draft with
+  the archive, the installer and `release.json`, downloads each file back and
+  compares it with the build byte for byte, publishes the draft as latest (which
+  puts the tag on GitHub at that commit), and reads the tag and the release back.
+  It then opens the Homebrew tap's pull request that sets
+  `Formula/synthesis-console.rb` to the built formula, which merges itself when
+  the tap's checks pass, waits for the merge and reads the formula back from the
+  tap's `main`. The notes are the `CHANGELOG.md` entry where the repository keeps
+  one, else the file `--notes-file` names, else GitHub writes them from the merged
+  pull requests. Nothing is public before the draft is published, and a run that
+  stops before then deletes its draft. A run publishes, so it runs only with the
+  owner's approval for that release; a release is complete only when the tool
+  exits 0.
+- Publishing the npm package as `@synthesiswork/console` is a separate step: a
+  public act the owner approves each time. The release tool prints the command
+  for the package it built and never runs it.
+- `scripts/test_release.py` tests the release tool with every git, gh and build
+  call faked; never tag, publish or release by hand.
