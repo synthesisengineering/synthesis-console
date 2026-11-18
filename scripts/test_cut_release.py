@@ -1,4 +1,4 @@
-"""scripts/release.py against a fake GitHub, tap and build.
+"""scripts/cut_release.py against a fake GitHub, tap and build.
 
 Every git, gh and build command the release runs goes to World, which answers as GitHub, the Homebrew tap and this
 Mac would and fails the test on any command it does not know: no test reaches the network, tags, publishes or runs
@@ -19,7 +19,7 @@ from pathlib import Path
 from subprocess import CompletedProcess
 
 ROOT = Path(__file__).resolve().parents[1]
-_spec = importlib.util.spec_from_file_location("console_release", ROOT / "scripts" / "release.py")
+_spec = importlib.util.spec_from_file_location("console_cut_release", ROOT / "scripts" / "cut_release.py")
 release = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(release)
 

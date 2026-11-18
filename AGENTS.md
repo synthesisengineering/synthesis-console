@@ -154,8 +154,8 @@ a test that fails without the change.
   tool makes the release, from a clean checkout of `main`:
 
   ```bash
-  python3 scripts/release.py --output <a new directory> --dry-run   # the checks and the plan; changes nothing
-  python3 scripts/release.py --output <a new directory>             # the release
+  python3 scripts/cut_release.py --output <a new directory> --dry-run   # the checks and the plan; changes nothing
+  python3 scripts/cut_release.py --output <a new directory>             # the release
   ```
 
   It refuses, before anything is published, unless the tree is clean, HEAD is the
@@ -175,9 +175,10 @@ a test that fails without the change.
   pull requests. Nothing is public before the draft is published, and a run that
   stops before then deletes its draft. A run publishes, so it runs only with the
   owner's approval for that release; a release is complete only when the tool
-  exits 0.
+  exits 0. A real run waits for the principal's code at the synthesis guard (his
+  `deploy_patterns`), and `--dry-run` does not.
 - Publishing the npm package as `@synthesiswork/console` is a separate step: a
   public act the owner approves each time. The release tool prints the command
   for the package it built and never runs it.
-- `scripts/test_release.py` tests the release tool with every git, gh and build
+- `scripts/test_cut_release.py` tests the release tool with every git, gh and build
   call faked; never tag, publish or release by hand.

@@ -2,8 +2,8 @@
 """Release synthesis-console from GitHub's main: preflight, tag, build, publish the GitHub release and the Homebrew
 formula, and read each back. npm is a separate step this tool prints and never runs.
 
-    python3 scripts/release.py --output <a new directory> --dry-run   # the checks and the plan; changes nothing
-    python3 scripts/release.py --output <a new directory>             # the release
+    python3 scripts/cut_release.py --output <a new directory> --dry-run   # the checks and the plan; changes nothing
+    python3 scripts/cut_release.py --output <a new directory>             # the release
 
 Run it from a clean checkout of the merged main (--repo-root names another checkout). The checkout only says what is
 released. Preflight refuses, before anything is published, unless:
@@ -455,7 +455,7 @@ def homebrew_formula(run, version: str, built: dict) -> tuple:
         opened = run(["gh", "pr", "create", "-R", TAP, "--head", branch, "--base", "main", "--title",
                       f"{FORMULA} {version}", "--body", f"Sets the {FORMULA} formula to the one built for "
                       f"[v{version}](https://github.com/{REPOSITORY}/releases/tag/v{version}). Opened by "
-                      f"{REPOSITORY}'s scripts/release.py; it merges when the tap's checks pass."], 120)
+                      f"{REPOSITORY}'s scripts/cut_release.py; it merges when the tap's checks pass."], 120)
         pr = opened.stdout.strip().splitlines()[-1] if opened.returncode == 0 and opened.stdout.strip() else ""
         if not pr:
             raise ReleaseError(f"cannot open the {TAP} pull request: {tail(opened)}")
@@ -534,7 +534,7 @@ def plan(repo: Path, version: str, sha: str, output: Path, notes_file: str) -> l
 
 
 def main(argv=None, run=run_command, sleep=time.sleep) -> int:
-    parser = argparse.ArgumentParser(prog="release.py", description=__doc__.split("\n\n")[0], allow_abbrev=False)
+    parser = argparse.ArgumentParser(prog="cut_release.py", description=__doc__.split("\n\n")[0], allow_abbrev=False)
     parser.add_argument("--repo-root", type=Path, default=ROOT, help="the checkout to release (default: this one)")
     parser.add_argument("--output", type=Path, required=True,
                         help="a new directory for the built files; the npm step publishes from it")
